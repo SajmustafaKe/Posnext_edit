@@ -18,6 +18,10 @@
     return a;
   };
   var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+  var __publicField = (obj, key, value) => {
+    __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+    return value;
+  };
 
   // ../posnext/posnext/public/js/pos_controller.js
   frappe.provide("posnext.PointOfSale");
@@ -624,7 +628,7 @@
         const item_row_exists = !$.isEmptyObject(item_row);
         const from_selector = field === "qty" && value === "+1";
         if (from_selector)
-          value = flt(item_row.stock_qty) + flt(value);
+          value = flt(item_row.stock_qty) + 1;
         if (item_row_exists) {
           if (field === "qty")
             value = flt(value);
@@ -633,48 +637,44 @@
           }
           if (this.is_current_item_being_edited(item_row) || from_selector) {
             await frappe.model.set_value(item_row.doctype, item_row.name, field, value);
+            this.update_cart_html(item_row);
           }
         } else {
           if (!this.frm.doc.customer && !this.settings.custom_mobile_number_based_customer) {
             return this.raise_customer_selection_alert();
           }
           frappe.flags.ignore_company_party_validation = true;
-          const { item_code, batch_no, serial_no, rate, uom, valuation_rate, custom_item_uoms, custom_logical_rack } = item;
-          if (!item_code)
-            return;
-          if (this.settings.custom_product_bundle) {
-            const product_bundle = await this.get_product_bundle(item_code);
-            if (product_bundle && Array.isArray(product_bundle.items)) {
-              const bundle_items = product_bundle.items.map((bundle_item) => ({
-                item_code: bundle_item.item_code,
-                qty: bundle_item.qty * value,
-                rate: bundle_item.rate,
-                uom: bundle_item.uom,
-                custom_bundle_id: product_bundle.name
-              }));
-              for (const bundle_item of bundle_items) {
-                const bundle_item_row = this.frm.add_child("items", bundle_item);
-                await this.trigger_new_item_events(bundle_item_row);
-              }
-              this.update_cart_html();
-              return;
-            }
+          let { item_code, batch_no, serial_no, rate, uom, valuation_rate, custom_item_uoms, custom_logical_rack } = item;
+          if (!rate || flt(rate) === 0) {
+            const res = await frappe.call({
+              method: "erpnext.stock.get_item_details.get_item_price",
+              args: { item_code, price_list: this.settings.selling_price_list }
+            });
+            rate = flt(res.message.price_list_rate) || 0;
           }
-          const new_item = { item_code, batch_no, rate, uom, [field]: value };
-          if (value) {
-            new_item["qty"] = value;
-          }
+          uom = uom || item.stock_uom || "Nos";
+          let qty = field === "qty" && value ? flt(value) : 1;
+          if (field === "serial_no")
+            qty = value.split(`
+`).length || 0;
           if (serial_no) {
             await this.check_serial_no_availablilty(item_code, this.frm.doc.set_warehouse, serial_no);
-            new_item["serial_no"] = serial_no;
           }
-          if (field === "serial_no")
-            new_item["qty"] = value.split(`
-`).length || 0;
+          const new_item = {
+            item_code,
+            batch_no,
+            serial_no,
+            rate,
+            uom,
+            qty,
+            amount: flt(rate) * flt(qty),
+            custom_item_uoms,
+            custom_logical_rack
+          };
           item_row = this.frm.add_child("items", new_item);
           await this.trigger_new_item_events(item_row);
-          item_row["custom_item_uoms"] = custom_item_uoms;
-          item_row["custom_logical_rack"] = custom_logical_rack;
+          this.frm.refresh_field("items");
+          this.update_cart_html(item_row);
           if (this.item_details.$component.is(":visible"))
             this.edit_item_details_of(item_row);
           if (this.check_serial_batch_selection_needed(item_row) && !this.item_details.$component.is(":visible"))
@@ -683,9 +683,9 @@
       } catch (error) {
         console.log(error);
       } finally {
-        var total_incoming_rate = 0;
+        let total_incoming_rate = 0;
         this.frm.doc.items.forEach((item) => {
-          total_incoming_rate += parseFloat(item.valuation_rate) * item.qty;
+          total_incoming_rate += flt(item.valuation_rate) * flt(item.qty);
         });
         this.item_selector.update_total_incoming_rate(total_incoming_rate);
         return item_row;
@@ -4020,7 +4020,8 @@
 
   // ../posnext/posnext/public/js/pos_payment.js
   frappe.provide("posnext.PointOfSale");
-  posnext.PointOfSale.Payment = class {
+  var _a;
+  posnext.PointOfSale.Payment = (_a = class {
     constructor({ events, wrapper, settings }) {
       this.wrapper = wrapper;
       this.events = events;
@@ -4035,6 +4036,17 @@
       if (this.enable_coupon_code) {
         this.render_coupon_code_field();
       }
+    }
+    debounce(func, wait) {
+      let timeout;
+      return function executedFunction(...args) {
+        const later = () => {
+          clearTimeout(timeout);
+          func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+      };
     }
     init_component() {
       this.prepare_dom();
@@ -4074,8 +4086,8 @@
         df: {
           label: __("Coupon Code"),
           fieldtype: "Link",
-          options: "Coupon Code",
-          fieldname: "coupon_code",
+          options: posnext.PointOfSale.Payment.CONSTANTS.OPTIONS.COUPON_CODE,
+          fieldname: posnext.PointOfSale.Payment.CONSTANTS.FIELD_NAMES.COUPON_CODE,
           placeholder: __("Select a coupon")
         },
         parent: this.$component.find(".coupon-code"),
@@ -4087,22 +4099,22 @@
       const fields = [];
       if (this.custom_show_credit_sales) {
         fields.push({
-          fieldname: "custom_credit_sales",
+          fieldname: posnext.PointOfSale.Payment.CONSTANTS.FIELD_NAMES.CUSTOM_CREDIT_SALES,
           label: "Credit Sales",
           fieldtype: "Check"
         });
       }
       if (this.custom_show_sales_man) {
         fields.push({
-          fieldname: "sales_person",
+          fieldname: posnext.PointOfSale.Payment.CONSTANTS.FIELD_NAMES.SALES_PERSON,
           label: "Sales Man",
           fieldtype: "Link",
-          options: "Sales Person"
+          options: posnext.PointOfSale.Payment.CONSTANTS.OPTIONS.SALES_PERSON
         });
       }
       if (this.custom_show_additional_note) {
         fields.push({
-          fieldname: "remarks",
+          fieldname: posnext.PointOfSale.Payment.CONSTANTS.FIELD_NAMES.REMARKS,
           label: "Additional Note",
           fieldtype: "Small Text"
         });
@@ -4119,21 +4131,20 @@
         );
         let df_events = {
           onchange: function() {
-            if (this.df.fieldname === "sales_person") {
+            if (this.df.fieldname === posnext.PointOfSale.Payment.CONSTANTS.FIELD_NAMES.SALES_PERSON) {
               frm.clear_table("sales_team");
               cur_frm.add_child("sales_team", {
                 sales_person: this.get_value(),
                 allocated_percentage: 100
               });
             } else {
-              if (this.df.fieldname === "custom_credit_sales") {
+              if (this.df.fieldname === posnext.PointOfSale.Payment.CONSTANTS.FIELD_NAMES.CUSTOM_CREDIT_SALES) {
                 if (this.get_value()) {
                   frm.doc.payments.forEach((p) => {
                     const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
                     me[`${mode}_control`].set_value(0);
                   });
                 } else {
-                  console.log(me.current_payments);
                   me.current_payments.forEach((p) => {
                     if (p.mode_of_payment === me.default_payment) {
                       const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
@@ -4167,6 +4178,11 @@
     }
     initialize_numpad() {
       const me = this;
+      this.debounced_update_value = this.debounce((value) => {
+        if (this.selected_mode) {
+          this.selected_mode.set_value(value);
+        }
+      }, 150);
       this.number_pad = new posnext.PointOfSale.NumberPad({
         wrapper: this.$numpad,
         events: {
@@ -4189,7 +4205,7 @@
       highlight_numpad_btn($btn);
       this.numpad_value = button_value === "delete" ? this.numpad_value.slice(0, -1) : this.numpad_value + button_value;
       this.selected_mode.$input.get(0).focus();
-      this.selected_mode.set_value(this.numpad_value);
+      this.debounced_update_value(this.numpad_value);
       function highlight_numpad_btn($btn2) {
         $btn2.addClass("shadow-base-inner bg-selected");
         setTimeout(() => {
@@ -4198,6 +4214,13 @@
       }
     }
     bind_events() {
+      this.bind_payment_mode_events();
+      this.bind_form_events();
+      this.bind_shortcut_events();
+      this.bind_submit_events();
+      this.setup_listener_for_payments();
+    }
+    bind_payment_mode_events() {
       const me = this;
       this.$payment_modes.on("click", ".mode-of-payment", function(e) {
         const mode_clicked = $(this);
@@ -4206,11 +4229,8 @@
         const scrollLeft = mode_clicked.offset().left - me.$payment_modes.offset().left + me.$payment_modes.scrollLeft();
         me.$payment_modes.animate({ scrollLeft });
         const mode = mode_clicked.attr("data-mode");
-        $(`.mode-of-payment-control`).css("display", "none");
-        $(`.cash-shortcuts`).css("display", "none");
-        me.$payment_modes.find(`.pay-amount`).css("display", "inline");
-        me.$payment_modes.find(`.loyalty-amount-name`).css("display", "none");
-        $(".mode-of-payment").removeClass("border-primary");
+        me.hide_all_controls_and_shortcuts();
+        me.remove_highlight_from_all_modes();
         if (mode_clicked.hasClass("border-primary")) {
           mode_clicked.removeClass("border-primary");
           me.selected_mode = "";
@@ -4225,17 +4245,29 @@
           me.auto_set_remaining_amount();
         }
       });
-      frappe.ui.form.on("POS Invoice", "contact_mobile", (frm) => {
-        var _a;
+    }
+    hide_all_controls_and_shortcuts() {
+      $(`.mode-of-payment-control`).css("display", "none");
+      $(`.cash-shortcuts`).css("display", "none");
+      this.$payment_modes.find(`.pay-amount`).css("display", "inline");
+      this.$payment_modes.find(`.loyalty-amount-name`).css("display", "none");
+    }
+    remove_highlight_from_all_modes() {
+      $(".mode-of-payment").removeClass("border-primary");
+    }
+    bind_form_events() {
+      const me = this;
+      frappe.ui.form.on(posnext.PointOfSale.Payment.CONSTANTS.DOCTYPE.POS_INVOICE, posnext.PointOfSale.Payment.CONSTANTS.EVENTS.CONTACT_MOBILE, (frm) => {
+        var _a2;
         const contact = frm.doc.contact_mobile;
-        const request_button = $((_a = this.request_for_payment_field) == null ? void 0 : _a.$input[0]);
+        const request_button = $((_a2 = this.request_for_payment_field) == null ? void 0 : _a2.$input[0]);
         if (contact) {
           request_button.removeClass("btn-default").addClass("btn-primary");
         } else {
           request_button.removeClass("btn-primary").addClass("btn-default");
         }
       });
-      frappe.ui.form.on("POS Invoice", "coupon_code", (frm) => {
+      frappe.ui.form.on(posnext.PointOfSale.Payment.CONSTANTS.DOCTYPE.POS_INVOICE, posnext.PointOfSale.Payment.CONSTANTS.EVENTS.COUPON_CODE, (frm) => {
         if (frm.doc.coupon_code && !frm.applying_pos_coupon_code) {
           if (!frm.doc.ignore_pricing_rule) {
             frm.applying_pos_coupon_code = true;
@@ -4256,11 +4288,33 @@
           }
         }
       });
-      this.setup_listener_for_payments();
+      frappe.ui.form.on(posnext.PointOfSale.Payment.CONSTANTS.DOCTYPE.POS_INVOICE, posnext.PointOfSale.Payment.CONSTANTS.EVENTS.PAID_AMOUNT, (frm) => {
+        this.update_totals_section(frm.doc);
+        const is_cash_shortcuts_invisible = !this.$payment_modes.find(".cash-shortcuts").is(":visible");
+        this.attach_cash_shortcuts(frm.doc);
+        !is_cash_shortcuts_invisible && this.$payment_modes.find(".cash-shortcuts").css("display", "grid");
+        this.render_payment_mode_dom();
+      });
+      frappe.ui.form.on(posnext.PointOfSale.Payment.CONSTANTS.DOCTYPE.POS_INVOICE, posnext.PointOfSale.Payment.CONSTANTS.EVENTS.LOYALTY_AMOUNT, (frm) => {
+        const formatted_currency = format_currency(frm.doc.loyalty_amount, frm.doc.currency);
+        this.$payment_modes.find(`.loyalty-amount-amount`).html(formatted_currency);
+      });
+      frappe.ui.form.on(posnext.PointOfSale.Payment.CONSTANTS.DOCTYPE.SALES_INVOICE_PAYMENT, posnext.PointOfSale.Payment.CONSTANTS.EVENTS.AMOUNT, (frm, cdt, cdn) => {
+        const default_mop = locals[cdt][cdn];
+        const mode = default_mop.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+        if (this[`${mode}_control`] && this[`${mode}_control`].get_value() != default_mop.amount) {
+          this[`${mode}_control`].set_value(default_mop.amount);
+        }
+      });
+    }
+    bind_shortcut_events() {
+      const me = this;
       this.$payment_modes.on("click", ".shortcut", function() {
         const value = $(this).attr("data-value");
         me.selected_mode.set_value(value);
       });
+    }
+    bind_submit_events() {
       this.$component.on("click", ".submit-order-btn", () => {
         const doc = this.events.get_frm().doc;
         let paid_amount = doc.paid_amount;
@@ -4277,46 +4331,32 @@
         }
         this.events.submit_invoice();
       });
-      frappe.ui.form.on("POS Invoice", "paid_amount", (frm) => {
-        this.update_totals_section(frm.doc);
-        const is_cash_shortcuts_invisible = !this.$payment_modes.find(".cash-shortcuts").is(":visible");
-        this.attach_cash_shortcuts(frm.doc);
-        !is_cash_shortcuts_invisible && this.$payment_modes.find(".cash-shortcuts").css("display", "grid");
-        this.render_payment_mode_dom();
-      });
-      frappe.ui.form.on("POS Invoice", "loyalty_amount", (frm) => {
-        const formatted_currency = format_currency(frm.doc.loyalty_amount, frm.doc.currency);
-        this.$payment_modes.find(`.loyalty-amount-amount`).html(formatted_currency);
-      });
-      frappe.ui.form.on("Sales Invoice Payment", "amount", (frm, cdt, cdn) => {
-        const default_mop = locals[cdt][cdn];
-        const mode = default_mop.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-        if (this[`${mode}_control`] && this[`${mode}_control`].get_value() != default_mop.amount) {
-          this[`${mode}_control`].set_value(default_mop.amount);
-        }
-      });
     }
     setup_listener_for_payments() {
       frappe.realtime.on("process_phone_payment", (data) => {
-        const doc = this.events.get_frm().doc;
-        const { response, amount, success, failure_message } = data;
-        let message, title;
-        if (success) {
-          title = __("Payment Received");
-          const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
-          if (amount >= grand_total) {
-            frappe.dom.unfreeze();
-            message = __("Payment of {0} received successfully.", [format_currency(amount, doc.currency, 0)]);
-            this.events.submit_invoice();
-            cur_frm.reload_doc();
-          } else {
-            message = __("Payment of {0} received successfully. Waiting for other requests to complete...", [format_currency(amount, doc.currency, 0)]);
+        try {
+          const doc = this.events.get_frm().doc;
+          const { response, amount, success, failure_message } = data;
+          let message, title;
+          if (success) {
+            title = __("Payment Received");
+            const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
+            if (amount >= grand_total) {
+              frappe.dom.unfreeze();
+              message = __("Payment of {0} received successfully.", [format_currency(amount, doc.currency, 0)]);
+              this.events.submit_invoice();
+              cur_frm.reload_doc();
+            } else {
+              message = __("Payment of {0} received successfully. Waiting for other requests to complete...", [format_currency(amount, doc.currency, 0)]);
+            }
+          } else if (failure_message) {
+            message = failure_message;
+            title = __("Payment Failed");
           }
-        } else if (failure_message) {
-          message = failure_message;
-          title = __("Payment Failed");
+          frappe.msgprint({ "message": message, "title": title });
+        } catch (error) {
+          frappe.show_alert({ message: __("Error processing phone payment: {0}", [error.message]), indicator: "red" });
         }
-        frappe.msgprint({ "message": message, "title": title });
       });
     }
     auto_set_remaining_amount() {
@@ -4433,13 +4473,17 @@
             fieldtype: "Currency",
             placeholder: __("Enter {0} amount.", [p.mode_of_payment]),
             onchange: function() {
-              console.log(p.doctype);
-              console.log(p.name);
-              const current_value = frappe.model.get_value(p.doctype, p.name, "amount");
-              if (current_value != this.value) {
-                frappe.model.set_value(p.doctype, p.name, "amount", flt(this.value)).then(() => me.update_totals_section());
-                const formatted_currency = format_currency(this.value, currency);
-                me.$payment_modes.find(`.${mode}-amount`).html(formatted_currency);
+              try {
+                const current_value = frappe.model.get_value(p.doctype, p.name, "amount");
+                if (current_value != this.value) {
+                  frappe.model.set_value(p.doctype, p.name, "amount", flt(this.value)).then(() => me.update_totals_section()).catch((error) => {
+                    frappe.show_alert({ message: __("Error updating payment amount: {0}", [error.message]), indicator: "red" });
+                  });
+                  const formatted_currency = format_currency(this.value, currency);
+                  me.$payment_modes.find(`.${mode}-amount`).html(formatted_currency);
+                }
+              } catch (error) {
+                frappe.show_alert({ message: __("Error processing payment change: {0}", [error.message]), indicator: "red" });
               }
             }
           },
@@ -4524,20 +4568,24 @@
           options: "company:currency",
           read_only,
           onchange: async function() {
-            if (!loyalty_points)
-              return;
-            if (this.value > max_redeemable_amount) {
-              frappe.show_alert({
-                message: __("You cannot redeem more than {0}.", [format_currency(max_redeemable_amount)]),
-                indicator: "red"
-              });
-              frappe.utils.play_sound("submit");
-              me["loyalty-amount_control"].set_value(0);
-              return;
+            try {
+              if (!loyalty_points)
+                return;
+              if (this.value > max_redeemable_amount) {
+                frappe.show_alert({
+                  message: __("You cannot redeem more than {0}.", [format_currency(max_redeemable_amount)]),
+                  indicator: "red"
+                });
+                frappe.utils.play_sound("submit");
+                me["loyalty-amount_control"].set_value(0);
+                return;
+              }
+              const redeem_loyalty_points = this.value > 0 ? 1 : 0;
+              await frappe.model.set_value(doc.doctype, doc.name, "redeem_loyalty_points", redeem_loyalty_points);
+              await frappe.model.set_value(doc.doctype, doc.name, "loyalty_points", parseInt(this.value / conversion_factor));
+            } catch (error) {
+              frappe.show_alert({ message: __("Error redeeming loyalty points: {0}", [error.message]), indicator: "red" });
             }
-            const redeem_loyalty_points = this.value > 0 ? 1 : 0;
-            await frappe.model.set_value(doc.doctype, doc.name, "redeem_loyalty_points", redeem_loyalty_points);
-            frappe.model.set_value(doc.doctype, doc.name, "loyalty_points", parseInt(this.value / conversion_factor));
           },
           description
         },
@@ -4558,12 +4606,9 @@
     update_totals_section(doc) {
       if (!doc)
         doc = this.events.get_frm().doc;
-      let branch_value = $('.input-with-feedback[data-fieldname="branch"]').val();
-      frappe.model.set_value(cur_frm.doctype, cur_frm.docname, "branch", branch_value);
-      const paid_amount = doc.paid_amount;
-      if (cur_frm.doc.custom_credit_sales) {
-        const paid_amount2 = 0;
-      }
+      let branch_value = $('.input-with-feedback[data-fieldname="' + posnext.PointOfSale.Payment.CONSTANTS.FIELD_NAMES.BRANCH + '"]').val();
+      frappe.model.set_value(cur_frm.doctype, cur_frm.docname, posnext.PointOfSale.Payment.CONSTANTS.FIELD_NAMES.BRANCH, branch_value);
+      const paid_amount = cur_frm.doc.custom_credit_sales ? 0 : doc.paid_amount;
       const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
       const remaining = grand_total - doc.paid_amount;
       const change = doc.change_amount || remaining <= 0 ? -1 * remaining : void 0;
@@ -4589,7 +4634,30 @@
     toggle_component(show) {
       show ? this.$component.css("display", "flex") : this.$component.css("display", "none");
     }
-  };
+  }, __publicField(_a, "CONSTANTS", {
+    FIELD_NAMES: {
+      CUSTOM_CREDIT_SALES: "custom_credit_sales",
+      SALES_PERSON: "sales_person",
+      REMARKS: "remarks",
+      COUPON_CODE: "coupon_code",
+      BRANCH: "branch"
+    },
+    DOCTYPE: {
+      POS_INVOICE: "POS Invoice",
+      SALES_INVOICE_PAYMENT: "Sales Invoice Payment"
+    },
+    OPTIONS: {
+      SALES_PERSON: "Sales Person",
+      COUPON_CODE: "Coupon Code"
+    },
+    EVENTS: {
+      CONTACT_MOBILE: "contact_mobile",
+      COUPON_CODE: "coupon_code",
+      PAID_AMOUNT: "paid_amount",
+      LOYALTY_AMOUNT: "loyalty_amount",
+      AMOUNT: "amount"
+    }
+  }), _a);
 
   // ../posnext/posnext/public/js/pos_past_order_list.js
   frappe.provide("posnext.PointOfSale");
@@ -5289,8 +5357,8 @@ Return`,
       show ? this.$component.css("display", "flex") : this.$component.css("display", "none");
     }
     async print_receipt_on_order_complete() {
-      var _a;
-      const profile_name = ((_a = this.pos_profile) == null ? void 0 : _a.name) || this.pos_profile;
+      var _a2;
+      const profile_name = ((_a2 = this.pos_profile) == null ? void 0 : _a2.name) || this.pos_profile;
       const { message } = await frappe.db.get_value(
         "POS Profile",
         profile_name,
@@ -5302,4 +5370,4 @@ Return`,
     }
   };
 })();
-//# sourceMappingURL=posnext.bundle.2UPRCH5S.js.map
+//# sourceMappingURL=posnext.bundle.JNOEXIEK.js.map
