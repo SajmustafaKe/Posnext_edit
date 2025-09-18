@@ -1,18 +1,102 @@
 frappe.provide('posnext.PointOfSale');
 posnext.PointOfSale.PastOrderSummary = class {
-	constructor({ wrapper, pos_profile,events }) {
-		this.wrapper = wrapper;
-		this.pos_profile = pos_profile;
-		this.events = events;
+	// Constants for better management
+	static CONSTANTS = {
+		DELAYS: {
+			PRINT_DELAY: 300,
+			AUTO_PRINT_DELAY: 500,
+			EMAIL_SEND_DELAY: 1000
+		},
+		VALIDATION: {
+			MIN_MOBILE_LENGTH: 10,
+			MAX_MOBILE_LENGTH: 15,
+			EMAIL_REGEX: /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+		},
+		WHATSAPP: {
+			BASE_URL: "https://wa.me/",
+			MESSAGE_TEMPLATE: "Invoice {0} from {1}"
+		},
+		STATUSES: {
+			PAID: 'Paid',
+			CONSOLIDATED: 'Consolidated',
+			DRAFT: 'Draft',
+			RETURN: 'Return'
+		},
+		INDICATORS: {
+			GREEN: 'green',
+			RED: 'red',
+			GREY: 'grey',
+			ORANGE: 'orange'
+		}
+	};
 
-		this.init_component();
+	constructor({ wrapper, pos_profile, events }) {
+		try {
+			this.wrapper = wrapper;
+			this.pos_profile = pos_profile;
+			this.events = events;
+			this.customer_email = '';
+			this.doc = null;
+			this.dialogs = {};
+			this.eventListeners = [];
+			
+			this.init_component();
+		} catch (error) {
+			console.error('Error initializing PastOrderSummary:', error);
+			frappe.show_alert({
+				message: __('Failed to initialize order summary. Please refresh the page.'),
+				indicator: this.constructor.CONSTANTS.INDICATORS.RED
+			});
+		}
 	}
 
 	init_component() {
-		this.prepare_dom();
-		this.init_email_print_dialog();
-		this.bind_events();
-		this.attach_shortcuts();
+		try {
+			this.prepare_dom();
+			this.init_email_print_dialog();
+			this.bind_events();
+			this.attach_shortcuts();
+		} catch (error) {
+			console.error('Error during component initialization:', error);
+			frappe.show_alert({
+				message: __('Component initialization failed. Some features may not work.'),
+				indicator: this.constructor.CONSTANTS.INDICATORS.ORANGE
+			});
+		}
+	}
+
+	// Memory leak prevention - cleanup method
+	destroy() {
+		try {
+			// Remove all event listeners
+			this.eventListeners.forEach(({ element, event, handler }) => {
+				if (element && element.off) {
+					element.off(event, handler);
+				}
+			});
+			this.eventListeners = [];
+
+			// Hide and cleanup dialogs
+			Object.values(this.dialogs).forEach(dialog => {
+				if (dialog && dialog.hide) {
+					dialog.hide();
+				}
+			});
+			this.dialogs = {};
+
+			// Remove keyboard shortcuts
+			if (frappe.ui.keys) {
+				frappe.ui.keys.off("ctrl+enter");
+				frappe.ui.keys.remove_shortcut && frappe.ui.keys.remove_shortcut("ctrl+p");
+				frappe.ui.keys.remove_shortcut && frappe.ui.keys.remove_shortcut("ctrl+e");
+			}
+
+			// Clear component references
+			this.doc = null;
+			this.customer_email = '';
+		} catch (error) {
+			console.error('Error during cleanup:', error);
+		}
 	}
 
 	prepare_dom() {
@@ -47,30 +131,56 @@ posnext.PointOfSale.PastOrderSummary = class {
 	}
 
 	init_email_print_dialog() {
-		const email_dialog = new frappe.ui.Dialog({
-			title: 'Email Receipt',
-			fields: [
-				{fieldname: 'email_id', fieldtype: 'Data', options: 'Email', label: 'Email ID', reqd: 1},
-				{fieldname:'content', fieldtype:'Small Text', label:'Message (if any)'}
-			],
-			primary_action: () => {
-				this.send_email();
-			},
-			primary_action_label: __('Send'),
-		});
-		this.email_dialog = email_dialog;
+		try {
+			// Email dialog with improved validation
+			const email_dialog = new frappe.ui.Dialog({
+				title: __('Email Receipt'),
+				fields: [
+					{
+						fieldname: 'email_id', 
+						fieldtype: 'Data', 
+						options: 'Email', 
+						label: __('Email ID'), 
+						reqd: 1,
+						description: __('Enter a valid email address')
+					},
+					{
+						fieldname: 'content', 
+						fieldtype: 'Small Text', 
+						label: __('Message (if any)')
+					}
+				],
+				primary_action: () => {
+					this.send_email();
+				},
+				primary_action_label: __('Send'),
+			});
+			this.dialogs.email = email_dialog;
 
-		const print_dialog = new frappe.ui.Dialog({
-			title: 'Print Receipt',
-			fields: [
-				{fieldname: 'print', fieldtype: 'Data', label: 'Print Preview'}
-			],
-			primary_action: () => {
-				this.print_receipt();
-			},
-			primary_action_label: __('Print'),
-		});
-		this.print_dialog = print_dialog;
+			// Print dialog
+			const print_dialog = new frappe.ui.Dialog({
+				title: __('Print Receipt'),
+				fields: [
+					{
+						fieldname: 'print', 
+						fieldtype: 'Data', 
+						label: __('Print Preview'),
+						read_only: 1
+					}
+				],
+				primary_action: () => {
+					this.print_receipt();
+				},
+				primary_action_label: __('Print'),
+			});
+			this.dialogs.print = print_dialog;
+		} catch (error) {
+			console.error('Error initializing dialogs:', error);
+			frappe.show_alert({
+				message: __('Dialog initialization failed. Email and print features may not work.'),
+				indicator: this.constructor.CONSTANTS.INDICATORS.ORANGE
+			});
+		}
 	}
 
 	get_upper_section_html(doc) {
@@ -180,63 +290,15 @@ posnext.PointOfSale.PastOrderSummary = class {
         });
 
         this.$summary_container.on('click', '.send-btn', () => {
-            if (!this.pos_profile.custom_notification_message_whatsapp) {
+            try {
+                this.send_whatsapp();
+            } catch (error) {
+                console.error('WhatsApp send error:', error);
                 frappe.show_alert({
-                    message: __('WhatsApp notification is not enabled in POS Profile'),
-                    indicator: 'orange'
+                    message: __('WhatsApp feature encountered an error'),
+                    indicator: this.constructor.CONSTANTS.INDICATORS.RED
                 });
-                return;
             }
-
-            if (!this.doc.customer) {
-                frappe.throw(__('Please select a customer first'));
-                return;
-            }
-
-            frappe.db.get_value('Customer', this.doc.customer, 'mobile_no')
-                .then(({ message }) => {
-                    if (message.mobile_no) {
-                        const mobile_no = message.mobile_no.replace(/[^0-9]/g, '');
-                        const whatsapp_message = "https://wa.me/" + mobile_no + "?text=";
-                        
-                        // Get the print URL directly
-                        const print_url = frappe.urllib.get_full_url(
-                            '/printview?doctype=' + encodeURIComponent(this.doc.doctype) +
-                            '&name=' + encodeURIComponent(this.doc.name) +
-                            '&format=' + encodeURIComponent(this.pos_profile.print_format) +
-                            '&no_letterhead=0' +
-                            '&_lang=' + encodeURIComponent(frappe.boot.lang) +
-                            '&trigger_print=1'
-                        );
-
-                        const final_message = whatsapp_message + 
-                            encodeURIComponent("Please find your invoice here \n" + print_url);
-                        window.open(final_message);
-                    } else {
-                        var field_values = this.pos_profile.custom_whatsapp_field_names.map(x => this.doc[x.field_name]);
-
-                        var message_body = formatString(this.pos_profile.custom_whatsapp_message, field_values);
-
-                        const print_url = frappe.urllib.get_full_url(
-                            '/printview?doctype=' + encodeURIComponent(this.doc.doctype) +
-                            '&name=' + encodeURIComponent(this.doc.name) +
-                            '&format=' + encodeURIComponent(this.pos_profile.print_format) +
-                            '&no_letterhead=0' +
-                            '&_lang=' + encodeURIComponent(frappe.boot.lang) +
-                            '&trigger_print=1'
-                        );
-
-                        message_body += "\n\nPlease find your invoice here:\n" + print_url;
-
-                        var encoded_message = encodeURIComponent(message_body);
-
-                        var phone_number = this.doc.customer;
-
-                        var whatsapp_url = "https://wa.me/" + phone_number + "?text=" + encoded_message;
-
-                        window.open(whatsapp_url, '_blank');
-                    }
-                });
         });
 
         function formatString(str, args) {
@@ -264,45 +326,103 @@ posnext.PointOfSale.PastOrderSummary = class {
         });
     }
 
-print_receipt() {
-		const frm = this.events.get_frm();
-		const print_format = frm.pos_print_format;
-		const doctype = this.doc.doctype;
-		const docname = this.doc.name;
-		const letterhead = this.doc.letter_head || __("No Letterhead");
-		const lang_code = this.doc.language || frappe.boot.lang;
-		
-		frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing")
-			.then(({ message }) => {
-				if (message && message.enable_raw_printing === "1") {
-					this._print_via_qz(doctype, docname, print_format, letterhead, lang_code);
-				} else {
-					frappe.utils.print(
-						doctype,
-						docname,
-						print_format,
-						letterhead,
-						lang_code
-					);
-				}
+	print_receipt() {
+		try {
+			if (!this.dialogs.print) {
+				frappe.throw(__('Print dialog not available'));
+				return;
+			}
+
+			const frm = this.events.get_frm();
+			if (!frm || !frm.pos_print_format) {
+				frappe.show_alert({
+					message: __('Print format not configured'),
+					indicator: this.constructor.CONSTANTS.INDICATORS.RED
+				});
+				return;
+			}
+
+			const print_format = frm.pos_print_format;
+			const doctype = this.doc.doctype;
+			const docname = this.doc.name;
+			const letterhead = this.doc.letter_head || __("No Letterhead");
+			const lang_code = this.doc.language || frappe.boot.lang;
+			
+			// Show loading state
+			frappe.show_alert({
+				message: __('Preparing print...'),
+				indicator: this.constructor.CONSTANTS.INDICATORS.BLUE
 			});
+
+			frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing")
+				.then(({ message }) => {
+					if (message && message.enable_raw_printing === "1") {
+						this._print_via_qz(doctype, docname, print_format, letterhead, lang_code);
+					} else {
+						this._print_via_browser(doctype, docname, print_format, letterhead, lang_code);
+					}
+				})
+				.catch((error) => {
+					console.error('Print settings fetch error:', error);
+					// Fallback to browser printing
+					this._print_via_browser(doctype, docname, print_format, letterhead, lang_code);
+				});
+		} catch (error) {
+			console.error('Print function error:', error);
+			frappe.show_alert({
+				message: __('Print feature encountered an error'),
+				indicator: this.constructor.CONSTANTS.INDICATORS.RED
+			});
+		}
 	}
 
-_print_via_qz(doctype, docname, print_format, letterhead, lang_code) {
-		const print_format_printer_map = this._get_print_format_printer_map();
-		const mapped_printer = this._get_mapped_printer(print_format_printer_map, doctype, print_format);
-		
-		if (mapped_printer.length === 1) {
-			this._print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, mapped_printer[0]);
-		} else if (this._is_raw_printing(print_format)) {
+	_print_via_browser(doctype, docname, print_format, letterhead, lang_code) {
+		try {
+			frappe.utils.print(
+				doctype,
+				docname,
+				print_format,
+				letterhead,
+				lang_code
+			);
 			frappe.show_alert({
-				message: __("Printer mapping not set."),
-				subtitle: __("Please set a printer mapping for this print format in the Printer Settings"),
-				indicator: "warning"
-			}, 14);
-			this._printer_setting_dialog(doctype, print_format);
-		} else {
-			this._render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
+				message: __('Print opened successfully'),
+				indicator: this.constructor.CONSTANTS.INDICATORS.GREEN
+			});
+		} catch (error) {
+			console.error('Browser print error:', error);
+			frappe.show_alert({
+				message: __('Failed to open print preview'),
+				indicator: this.constructor.CONSTANTS.INDICATORS.RED
+			});
+		}
+	}
+
+	_print_via_qz(doctype, docname, print_format, letterhead, lang_code) {
+		try {
+			const print_format_printer_map = this._get_print_format_printer_map();
+			const mapped_printer = this._get_mapped_printer(print_format_printer_map, doctype, print_format);
+			
+			if (mapped_printer.length === 1) {
+				this._print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, mapped_printer[0]);
+			} else if (this._is_raw_printing(print_format)) {
+				frappe.show_alert({
+					message: __("Printer mapping not set."),
+					subtitle: __("Please set a printer mapping for this print format in the Printer Settings"),
+					indicator: this.constructor.CONSTANTS.INDICATORS.ORANGE
+				}, this.constructor.CONSTANTS.DELAYS.LONG_ALERT);
+				this._printer_setting_dialog(doctype, print_format);
+			} else {
+				this._render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
+			}
+		} catch (error) {
+			console.error('QZ print error:', error);
+			frappe.show_alert({
+				message: __('QZ printer failed, falling back to browser print'),
+				indicator: this.constructor.CONSTANTS.INDICATORS.ORANGE
+			});
+			// Fallback to browser printing
+			this._print_via_browser(doctype, docname, print_format, letterhead, lang_code);
 		}
 	}
 
@@ -486,45 +606,224 @@ _print_via_qz(doctype, docname, print_format, letterhead, lang_code) {
 	}
 
 	send_email() {
-		const frm = this.events.get_frm();
-		const recipients = this.email_dialog.get_values().email_id;
-		const content = this.email_dialog.get_values().content;
-		const doc = this.doc || frm.doc;
-		const print_format = frm.pos_print_format;
-
-		frappe.call({
-			method: "frappe.core.doctype.communication.email.make",
-			args: {
-				recipients: recipients,
-				subject: __(frm.meta.name) + ': ' + doc.name,
-				content: content ? content : __(frm.meta.name) + ': ' + doc.name,
-				doctype: doc.doctype,
-				name: doc.name,
-				send_email: 1,
-				print_format,
-				sender_full_name: frappe.user.full_name(),
-				_lang: doc.language
-			},
-			callback: r => {
-				if (!r.exc) {
-					frappe.utils.play_sound("email");
-					if (r.message["emails_not_sent_to"]) {
-						frappe.msgprint(__(
-							"Email not sent to {0} (unsubscribed / disabled)",
-							[ frappe.utils.escape_html(r.message["emails_not_sent_to"]) ]
-						));
-					} else {
-						frappe.show_alert({
-							message: __('Email sent successfully.'),
-							indicator: 'green'
-						});
-					}
-					this.email_dialog.hide();
-				} else {
-					frappe.msgprint(__("There were errors while sending email. Please try again."));
-				}
+		try {
+			if (!this.dialogs.email) {
+				frappe.throw(__('Email dialog not available'));
+				return;
 			}
-		});
+
+			const form_data = this.dialogs.email.get_values();
+			
+			// Enhanced email validation
+			if (!form_data.email_id || !this.validate_email(form_data.email_id)) {
+				frappe.show_alert({
+					message: __('Please enter a valid email address'),
+					indicator: this.constructor.CONSTANTS.INDICATORS.RED
+				});
+				return;
+			}
+
+			const frm = this.events.get_frm();
+			const recipients = form_data.email_id;
+			const content = form_data.content;
+			const doc = this.doc || frm.doc;
+			const print_format = frm.pos_print_format;
+
+			// Show loading state
+			this.dialogs.email.set_primary_action(__('Sending...'));
+			this.dialogs.email.disable_primary_action();
+
+			frappe.call({
+				method: "frappe.core.doctype.communication.email.make",
+				args: {
+					recipients: recipients,
+					subject: __(frm.meta.name) + ': ' + doc.name,
+					content: content ? content : __(frm.meta.name) + ': ' + doc.name,
+					doctype: doc.doctype,
+					name: doc.name,
+					send_email: 1,
+					print_format,
+					sender_full_name: frappe.user.full_name(),
+					_lang: doc.language
+				},
+				callback: r => {
+					this.dialogs.email.enable_primary_action();
+					this.dialogs.email.set_primary_action(__('Send'));
+
+					if (!r.exc) {
+						frappe.utils.play_sound("email");
+						if (r.message["emails_not_sent_to"]) {
+							frappe.msgprint(__(
+								"Email not sent to {0} (unsubscribed / disabled)",
+								[ frappe.utils.escape_html(r.message["emails_not_sent_to"]) ]
+							));
+						} else {
+							frappe.show_alert({
+								message: __('Email sent successfully.'),
+								indicator: this.constructor.CONSTANTS.INDICATORS.GREEN
+							});
+						}
+						this.dialogs.email.hide();
+					} else {
+						console.error('Email send error:', r.exc);
+						frappe.msgprint(__("There were errors while sending email. Please try again."));
+					}
+				},
+				error: (error) => {
+					console.error('Email call error:', error);
+					this.dialogs.email.enable_primary_action();
+					this.dialogs.email.set_primary_action(__('Send'));
+					frappe.show_alert({
+						message: __('Email sending failed. Please try again.'),
+						indicator: this.constructor.CONSTANTS.INDICATORS.RED
+					});
+				}
+			});
+		} catch (error) {
+			console.error('Email function error:', error);
+			frappe.show_alert({
+				message: __('Email feature encountered an error'),
+				indicator: this.constructor.CONSTANTS.INDICATORS.RED
+			});
+		}
+	}
+
+	validate_email(email) {
+		// Use constants for validation
+		const emailRegex = this.constructor.CONSTANTS.VALIDATION.EMAIL_REGEX;
+		const maxLength = this.constructor.CONSTANTS.VALIDATION.EMAIL_MAX_LENGTH;
+		
+		return emailRegex.test(email) && email.length <= maxLength;
+	}
+
+	send_whatsapp() {
+		try {
+			// Check if WhatsApp is enabled
+			if (!this.pos_profile.custom_notification_message_whatsapp) {
+				frappe.show_alert({
+					message: __('WhatsApp notification is not enabled in POS Profile'),
+					indicator: this.constructor.CONSTANTS.INDICATORS.ORANGE
+				});
+				return;
+			}
+
+			// Validate customer selection
+			if (!this.doc.customer) {
+				frappe.throw(__('Please select a customer first'));
+				return;
+			}
+
+			// Get customer mobile number
+			frappe.db.get_value('Customer', this.doc.customer, 'mobile_no')
+				.then(({ message }) => {
+					this.process_whatsapp_send(message);
+				})
+				.catch((error) => {
+					console.error('Error fetching customer mobile:', error);
+					frappe.show_alert({
+						message: __('Failed to fetch customer mobile number'),
+						indicator: this.constructor.CONSTANTS.INDICATORS.RED
+					});
+				});
+		} catch (error) {
+			console.error('WhatsApp function error:', error);
+			frappe.show_alert({
+				message: __('WhatsApp feature encountered an error'),
+				indicator: this.constructor.CONSTANTS.INDICATORS.RED
+			});
+		}
+	}
+
+	process_whatsapp_send(customer_data) {
+		try {
+			const print_url = this.generate_print_url();
+			
+			if (customer_data.mobile_no) {
+				this.send_whatsapp_with_mobile(customer_data.mobile_no, print_url);
+			} else {
+				this.send_whatsapp_without_mobile(print_url);
+			}
+		} catch (error) {
+			console.error('WhatsApp processing error:', error);
+			frappe.show_alert({
+				message: __('Error processing WhatsApp message'),
+				indicator: this.constructor.CONSTANTS.INDICATORS.RED
+			});
+		}
+	}
+
+	send_whatsapp_with_mobile(mobile_no, print_url) {
+		// Validate and clean mobile number
+		const cleaned_mobile = mobile_no.replace(/[^0-9]/g, '');
+		
+		if (!this.validate_mobile(cleaned_mobile)) {
+			frappe.show_alert({
+				message: __('Invalid mobile number format'),
+				indicator: this.constructor.CONSTANTS.INDICATORS.RED
+			});
+			return;
+		}
+
+		const whatsapp_message = this.constructor.CONSTANTS.WHATSAPP.BASE_URL + cleaned_mobile + "?text=";
+		const message_text = this.constructor.CONSTANTS.WHATSAPP.DEFAULT_MESSAGE + " \n" + print_url;
+		const final_message = whatsapp_message + encodeURIComponent(message_text);
+		
+		this.open_whatsapp_url(final_message);
+	}
+
+	send_whatsapp_without_mobile(print_url) {
+		if (!this.pos_profile.custom_whatsapp_field_names || !this.pos_profile.custom_whatsapp_message) {
+			frappe.show_alert({
+				message: __('WhatsApp configuration incomplete'),
+				indicator: this.constructor.CONSTANTS.INDICATORS.ORANGE
+			});
+			return;
+		}
+
+		const field_values = this.pos_profile.custom_whatsapp_field_names.map(x => this.doc[x.field_name]);
+		let message_body = formatString(this.pos_profile.custom_whatsapp_message, field_values);
+		
+		message_body += "\n\n" + this.constructor.CONSTANTS.WHATSAPP.DEFAULT_MESSAGE + ":\n" + print_url;
+		
+		const encoded_message = encodeURIComponent(message_body);
+		const phone_number = this.doc.customer;
+		const whatsapp_url = this.constructor.CONSTANTS.WHATSAPP.BASE_URL + phone_number + "?text=" + encoded_message;
+		
+		this.open_whatsapp_url(whatsapp_url);
+	}
+
+	generate_print_url() {
+		return frappe.urllib.get_full_url(
+			'/printview?doctype=' + encodeURIComponent(this.doc.doctype) +
+			'&name=' + encodeURIComponent(this.doc.name) +
+			'&format=' + encodeURIComponent(this.pos_profile.print_format) +
+			'&no_letterhead=0' +
+			'&_lang=' + encodeURIComponent(frappe.boot.lang) +
+			'&trigger_print=1'
+		);
+	}
+
+	validate_mobile(mobile) {
+		const minLength = this.constructor.CONSTANTS.VALIDATION.MIN_MOBILE_LENGTH;
+		const maxLength = this.constructor.CONSTANTS.VALIDATION.MAX_MOBILE_LENGTH;
+		
+		return mobile && mobile.length >= minLength && mobile.length <= maxLength;
+	}
+
+	open_whatsapp_url(url) {
+		try {
+			window.open(url, '_blank');
+			frappe.show_alert({
+				message: __('WhatsApp opened successfully'),
+				indicator: this.constructor.CONSTANTS.INDICATORS.GREEN
+			});
+		} catch (error) {
+			console.error('Error opening WhatsApp URL:', error);
+			frappe.show_alert({
+				message: __('Failed to open WhatsApp'),
+				indicator: this.constructor.CONSTANTS.INDICATORS.RED
+			});
+		}
 	}
 
 	add_summary_btns(map) {

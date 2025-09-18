@@ -28,28 +28,102 @@
   var selected_item = null;
   posnext.PointOfSale.Controller = class {
     constructor(wrapper) {
-      console.log("CONTROLLLLLERE");
-      this.wrapper = $(wrapper).find(".layout-main-section");
-      this.page = wrapper.page;
-      frappe.run_serially([
-        () => this.reload_status = false,
-        () => this.check_opening_entry(""),
-        () => this.reload_status = true
-      ]);
-      this.setup_form_events();
+      try {
+        console.log("Initializing POS Controller with enhanced error handling");
+        if (!wrapper) {
+          console.error("Wrapper parameter is required for POS Controller");
+          frappe.msgprint(__("Failed to initialize POS: Invalid wrapper"));
+          return;
+        }
+        this.wrapper = $(wrapper).find(".layout-main-section");
+        if (!this.wrapper.length) {
+          console.error("Layout main section not found in wrapper");
+          frappe.msgprint(__("Failed to initialize POS: Layout section not found"));
+          return;
+        }
+        this.page = wrapper.page;
+        frappe.run_serially([
+          () => {
+            try {
+              this.reload_status = false;
+              return Promise.resolve();
+            } catch (error) {
+              console.error("Error setting reload status:", error);
+              return Promise.reject(error);
+            }
+          },
+          () => {
+            try {
+              return this.check_opening_entry("");
+            } catch (error) {
+              console.error("Error checking opening entry:", error);
+              frappe.show_alert({
+                message: __("Error checking opening entry"),
+                indicator: "red"
+              });
+              return Promise.resolve();
+            }
+          },
+          () => {
+            try {
+              this.reload_status = true;
+              return Promise.resolve();
+            } catch (error) {
+              console.error("Error finalizing initialization:", error);
+              return Promise.resolve();
+            }
+          }
+        ]).catch((error) => {
+          console.error("Critical error during POS initialization:", error);
+          frappe.msgprint({
+            title: __("POS Initialization Error"),
+            message: __("Failed to initialize POS system. Please refresh the page."),
+            indicator: "red"
+          });
+        });
+        this.setup_form_events();
+        console.log("POS Controller initialized successfully");
+      } catch (error) {
+        console.error("Critical error in POS Controller constructor:", error);
+        frappe.msgprint({
+          title: __("POS System Error"),
+          message: __("Failed to start POS system. Please contact system administrator."),
+          indicator: "red"
+        });
+      }
     }
     setup_form_events() {
-      frappe.ui.form.on("Sales Invoice", {
-        after_save: function(frm) {
-          if (!frm.doc.pos_profile)
-            return;
-          frappe.db.get_doc("POS Profile", frm.doc.pos_profile).then((pos_profile) => {
-            if (pos_profile.custom_stock_update) {
-              frm.set_value("update_stock", 0);
+      try {
+        console.log("Setting up form events with error handling");
+        frappe.ui.form.on("Sales Invoice", {
+          after_save: function(frm) {
+            try {
+              if (!frm.doc.pos_profile)
+                return;
+              frappe.db.get_doc("POS Profile", frm.doc.pos_profile).then((pos_profile) => {
+                try {
+                  if (pos_profile.custom_stock_update) {
+                    frm.set_value("update_stock", 0);
+                  }
+                } catch (error) {
+                  console.error("Error processing POS profile settings:", error);
+                }
+              }).catch((error) => {
+                console.error("Error fetching POS profile:", error);
+              });
+            } catch (error) {
+              console.error("Error in Sales Invoice after_save event:", error);
             }
-          });
-        }
-      });
+          }
+        });
+        console.log("Form events setup completed");
+      } catch (error) {
+        console.error("Error setting up form events:", error);
+        frappe.show_alert({
+          message: __("Error setting up form events"),
+          indicator: "orange"
+        });
+      }
     }
     fetch_opening_entry(value) {
       return frappe.call("posnext.posnext.page.posnext.point_of_sale.check_opening_entry", { "user": frappe.session.user, "value": value });
@@ -186,26 +260,72 @@
       };
     }
     async prepare_app_defaults(data) {
-      this.pos_opening = data.name;
-      this.company = data.company;
-      this.pos_profile = data.pos_profile;
-      this.pos_opening_time = data.period_start_date;
-      this.item_stock_map = {};
-      this.settings = {};
-      window.current_pos_profile = this.pos_profile;
-      frappe.db.get_value("Stock Settings", void 0, "allow_negative_stock").then(({ message }) => {
-        this.allow_negative_stock = flt(message.allow_negative_stock) || false;
-      });
-      frappe.call({
-        method: "posnext.posnext.page.posnext.point_of_sale.get_pos_profile_data",
-        args: { "pos_profile": this.pos_profile },
-        callback: (res) => {
-          const profile = res.message;
-          Object.assign(this.settings, profile);
-          this.settings.customer_groups = profile.customer_groups.map((group) => group.name);
-          this.make_app();
+      try {
+        console.log("Preparing app defaults with enhanced error handling");
+        if (!data || !data.name) {
+          console.error("Invalid data provided to prepare_app_defaults");
+          frappe.msgprint(__("Invalid initialization data. Please refresh the page."));
+          return;
         }
-      });
+        this.pos_opening = data.name;
+        this.company = data.company;
+        this.pos_profile = data.pos_profile;
+        this.pos_opening_time = data.period_start_date;
+        this.item_stock_map = {};
+        this.settings = {};
+        window.current_pos_profile = this.pos_profile;
+        try {
+          const stockSettings = await frappe.db.get_value("Stock Settings", void 0, "allow_negative_stock");
+          this.allow_negative_stock = flt(stockSettings.message.allow_negative_stock) || false;
+        } catch (error) {
+          console.error("Error fetching stock settings:", error);
+          this.allow_negative_stock = false;
+        }
+        frappe.call({
+          method: "posnext.posnext.page.posnext.point_of_sale.get_pos_profile_data",
+          args: { "pos_profile": this.pos_profile },
+          callback: (res) => {
+            try {
+              if (!res.message) {
+                console.error("No POS profile data received");
+                frappe.msgprint(__("Failed to load POS profile data. Please refresh the page."));
+                return;
+              }
+              const profile = res.message;
+              Object.assign(this.settings, profile);
+              if (profile.customer_groups && Array.isArray(profile.customer_groups)) {
+                this.settings.customer_groups = profile.customer_groups.map((group) => group.name);
+              } else {
+                this.settings.customer_groups = [];
+                console.warn("No customer groups found in POS profile");
+              }
+              this.make_app();
+            } catch (error) {
+              console.error("Error processing POS profile data:", error);
+              frappe.msgprint({
+                title: __("POS Profile Error"),
+                message: __("Error processing POS profile. Please refresh the page."),
+                indicator: "red"
+              });
+            }
+          },
+          error: (error) => {
+            console.error("Error fetching POS profile data:", error);
+            frappe.msgprint({
+              title: __("Network Error"),
+              message: __("Failed to fetch POS profile data. Please check your connection and refresh."),
+              indicator: "red"
+            });
+          }
+        });
+      } catch (error) {
+        console.error("Critical error in prepare_app_defaults:", error);
+        frappe.msgprint({
+          title: __("Initialization Error"),
+          message: __("Failed to prepare POS defaults. Please refresh the page."),
+          indicator: "red"
+        });
+      }
     }
     set_opening_entry_status() {
       this.page.set_title_sub(
@@ -217,10 +337,63 @@
       );
     }
     make_app() {
-      this.prepare_dom();
-      this.prepare_components();
-      this.prepare_menu();
-      this.make_new_invoice();
+      try {
+        console.log("Making POS app with enhanced error handling");
+        if (!this.settings) {
+          console.error("Settings not available for app creation");
+          frappe.msgprint(__("POS settings not loaded. Please refresh the page."));
+          return;
+        }
+        try {
+          this.prepare_dom();
+          console.log("DOM preparation completed");
+        } catch (error) {
+          console.error("Error preparing DOM:", error);
+          frappe.show_alert({
+            message: __("Error preparing interface"),
+            indicator: "red"
+          });
+          return;
+        }
+        try {
+          this.prepare_components();
+          console.log("Components preparation completed");
+        } catch (error) {
+          console.error("Error preparing components:", error);
+          frappe.show_alert({
+            message: __("Error initializing POS components"),
+            indicator: "red"
+          });
+        }
+        try {
+          this.prepare_menu();
+          console.log("Menu preparation completed");
+        } catch (error) {
+          console.error("Error preparing menu:", error);
+          frappe.show_alert({
+            message: __("Error setting up menu"),
+            indicator: "orange"
+          });
+        }
+        try {
+          this.make_new_invoice();
+          console.log("New invoice creation completed");
+        } catch (error) {
+          console.error("Error making new invoice:", error);
+          frappe.show_alert({
+            message: __("Error creating initial invoice"),
+            indicator: "red"
+          });
+        }
+        console.log("POS app creation completed successfully");
+      } catch (error) {
+        console.error("Critical error during app creation:", error);
+        frappe.msgprint({
+          title: __("App Creation Error"),
+          message: __("Failed to create POS application. Please refresh the page."),
+          indicator: "red"
+        });
+      }
     }
     prepare_dom() {
       this.wrapper.append(
@@ -229,12 +402,77 @@
       this.$components_wrapper = this.wrapper.find(".point-of-sale-app");
     }
     prepare_components() {
-      this.init_item_selector();
-      this.init_item_details();
-      this.init_item_cart();
-      this.init_payments();
-      this.init_recent_order_list();
-      this.init_order_summary();
+      try {
+        console.log("Preparing POS components with error handling");
+        try {
+          this.init_item_selector();
+          console.log("Item selector initialized successfully");
+        } catch (error) {
+          console.error("Error initializing item selector:", error);
+          frappe.show_alert({
+            message: __("Error initializing item selector"),
+            indicator: "orange"
+          });
+        }
+        try {
+          this.init_item_details();
+          console.log("Item details initialized successfully");
+        } catch (error) {
+          console.error("Error initializing item details:", error);
+          frappe.show_alert({
+            message: __("Error initializing item details"),
+            indicator: "orange"
+          });
+        }
+        try {
+          this.init_item_cart();
+          console.log("Item cart initialized successfully");
+        } catch (error) {
+          console.error("Error initializing item cart:", error);
+          frappe.show_alert({
+            message: __("Error initializing shopping cart. Some features may not work properly."),
+            indicator: "red"
+          });
+        }
+        try {
+          this.init_payments();
+          console.log("Payments initialized successfully");
+        } catch (error) {
+          console.error("Error initializing payments:", error);
+          frappe.show_alert({
+            message: __("Error initializing payment system"),
+            indicator: "orange"
+          });
+        }
+        try {
+          this.init_recent_order_list();
+          console.log("Recent order list initialized successfully");
+        } catch (error) {
+          console.error("Error initializing recent order list:", error);
+          frappe.show_alert({
+            message: __("Error initializing recent orders"),
+            indicator: "orange"
+          });
+        }
+        try {
+          this.init_order_summary();
+          console.log("Order summary initialized successfully");
+        } catch (error) {
+          console.error("Error initializing order summary:", error);
+          frappe.show_alert({
+            message: __("Error initializing order summary"),
+            indicator: "orange"
+          });
+        }
+        console.log("POS components preparation completed");
+      } catch (error) {
+        console.error("Critical error during component preparation:", error);
+        frappe.msgprint({
+          title: __("Component Initialization Error"),
+          message: __("Some POS components failed to initialize. Please refresh the page."),
+          indicator: "red"
+        });
+      }
     }
     prepare_menu() {
       this.page.clear_menu();
@@ -324,52 +562,174 @@
       this.cart.load_invoice();
     }
     init_item_cart() {
-      this.cart = new posnext.PointOfSale.ItemCart({
-        wrapper: this.$components_wrapper,
-        settings: this.settings,
-        events: {
-          get_frm: () => this.frm,
-          remove_item_from_cart: (item) => {
-            this.item_details.current_item = item;
-            this.item_details.name = item.name;
-            this.item_details.doctype = item.doctype;
-          },
-          form_updated: (item, field, value) => {
-            this.item_details.current_item = item;
-            const item_row = frappe.model.get_doc(item.doctype, item.name);
-            if (field === "qty" && this.frm.doc.is_return && value >= 0) {
-              frappe.throw("Qty must be negative for return document");
-            }
-            if (item_row && item_row[field] != value) {
-              const args = {
-                field,
-                value,
-                item: this.item_details.current_item
-              };
-              return this.on_cart_update(args);
-            }
-            return Promise.resolve();
-          },
-          cart_item_clicked: (item) => {
-            const item_row = this.get_item_from_frm(item);
-            if (selected_item && selected_item["name"] == item["name"]) {
-              selected_item = null;
-            } else {
-              selected_item = item_row;
-            }
-            this.item_details.toggle_item_details_section(item_row);
-          },
-          numpad_event: (value, action) => this.update_item_field(value, action),
-          checkout: () => this.save_and_checkout(),
-          edit_cart: () => this.payment.edit_cart(),
-          save_draft_invoice: () => this.save_draft_invoice(),
-          toggle_recent_order: () => this.toggle_recent_order(),
-          customer_details_updated: (details) => {
-            this.customer_details = details;
-            this.payment.render_loyalty_points_payment_mode();
-          }
+      try {
+        console.log("Initializing item cart with enhanced error handling");
+        if (!this.$components_wrapper || !this.$components_wrapper.length) {
+          console.error("Components wrapper not found for cart initialization");
+          frappe.msgprint(__("Failed to initialize cart: Components wrapper not available"));
+          return;
         }
-      });
+        if (!this.settings) {
+          console.error("Settings not available for cart initialization");
+          frappe.msgprint(__("Failed to initialize cart: Settings not loaded"));
+          return;
+        }
+        this.cart = new posnext.PointOfSale.ItemCart({
+          wrapper: this.$components_wrapper,
+          settings: this.settings,
+          events: {
+            get_frm: () => {
+              try {
+                return this.frm;
+              } catch (error) {
+                console.error("Error getting form reference:", error);
+                return null;
+              }
+            },
+            remove_item_from_cart: (item) => {
+              try {
+                this.item_details.current_item = item;
+                this.item_details.name = item.name;
+                this.item_details.doctype = item.doctype;
+              } catch (error) {
+                console.error("Error removing item from cart:", error);
+                frappe.show_alert({
+                  message: __("Error removing item from cart"),
+                  indicator: "red"
+                });
+              }
+            },
+            form_updated: (item, field, value) => {
+              try {
+                this.item_details.current_item = item;
+                const item_row = frappe.model.get_doc(item.doctype, item.name);
+                if (field === "qty" && this.frm.doc.is_return && value >= 0) {
+                  frappe.throw("Qty must be negative for return document");
+                }
+                if (item_row && item_row[field] != value) {
+                  const args = {
+                    field,
+                    value,
+                    item: this.item_details.current_item
+                  };
+                  return this.on_cart_update(args);
+                }
+                return Promise.resolve();
+              } catch (error) {
+                console.error("Error updating form:", error);
+                frappe.show_alert({
+                  message: __("Error updating item: {0}", [error.message]),
+                  indicator: "red"
+                });
+                return Promise.reject(error);
+              }
+            },
+            cart_item_clicked: (item) => {
+              try {
+                const item_row = this.get_item_from_frm(item);
+                if (selected_item && selected_item["name"] == item["name"]) {
+                  selected_item = null;
+                } else {
+                  selected_item = item_row;
+                }
+                if (this.item_details && this.item_details.toggle_item_details_section) {
+                  this.item_details.toggle_item_details_section(item_row);
+                }
+              } catch (error) {
+                console.error("Error handling cart item click:", error);
+                frappe.show_alert({
+                  message: __("Error selecting item"),
+                  indicator: "red"
+                });
+              }
+            },
+            numpad_event: (value, action) => {
+              try {
+                return this.update_item_field(value, action);
+              } catch (error) {
+                console.error("Error handling numpad event:", error);
+                frappe.show_alert({
+                  message: __("Error processing numpad input"),
+                  indicator: "red"
+                });
+              }
+            },
+            checkout: () => {
+              try {
+                return this.save_and_checkout();
+              } catch (error) {
+                console.error("Error during checkout:", error);
+                frappe.show_alert({
+                  message: __("Error during checkout: {0}", [error.message]),
+                  indicator: "red"
+                });
+              }
+            },
+            edit_cart: () => {
+              try {
+                if (this.payment && this.payment.edit_cart) {
+                  return this.payment.edit_cart();
+                }
+              } catch (error) {
+                console.error("Error editing cart:", error);
+                frappe.show_alert({
+                  message: __("Error editing cart"),
+                  indicator: "red"
+                });
+              }
+            },
+            save_draft_invoice: () => {
+              try {
+                return this.save_draft_invoice();
+              } catch (error) {
+                console.error("Error saving draft invoice:", error);
+                frappe.show_alert({
+                  message: __("Error saving draft invoice"),
+                  indicator: "red"
+                });
+              }
+            },
+            toggle_recent_order: () => {
+              try {
+                return this.toggle_recent_order();
+              } catch (error) {
+                console.error("Error toggling recent order:", error);
+                frappe.show_alert({
+                  message: __("Error accessing recent orders"),
+                  indicator: "red"
+                });
+              }
+            },
+            customer_details_updated: (details) => {
+              try {
+                this.customer_details = details;
+                if (this.payment && this.payment.render_loyalty_points_payment_mode) {
+                  this.payment.render_loyalty_points_payment_mode();
+                }
+              } catch (error) {
+                console.error("Error updating customer details:", error);
+                frappe.show_alert({
+                  message: __("Error updating customer details"),
+                  indicator: "red"
+                });
+              }
+            }
+          }
+        });
+        if (!this.cart) {
+          console.error("Failed to create cart instance");
+          frappe.msgprint(__("Failed to initialize cart. Please refresh the page."));
+          return;
+        }
+        console.log("Item cart initialized successfully");
+      } catch (error) {
+        console.error("Critical error initializing item cart:", error);
+        frappe.msgprint({
+          title: __("Cart Initialization Error"),
+          message: __("Failed to initialize the shopping cart. Please refresh the page and try again."),
+          indicator: "red"
+        });
+      }
     }
     init_item_details() {
       this.item_details = new posnext.PointOfSale.ItemDetails({
@@ -451,17 +811,7 @@
               this.item_selector.toggle_component(true);
             }
           },
-          submit_invoice: () => {
-            this.frm.savesubmit().then((r) => {
-              this.toggle_components(false);
-              this.order_summary.toggle_component(true);
-              this.order_summary.load_summary_of(this.frm.doc, true);
-              frappe.show_alert({
-                indicator: "green",
-                message: __("POS invoice {0} created succesfully", [r.doc.name])
-              });
-            });
-          }
+          submit_invoice: () => this.submit_invoice()
         }
       });
     }
@@ -620,16 +970,20 @@
       this.page.set_indicator(this.pos_profile, "blue");
     }
     async on_cart_update(args) {
-      console.log("Updating Cart");
+      console.log("Updating Cart with args:", args);
       let item_row = void 0;
       try {
         let { field, value, item } = args;
+        console.log("Cart update - Field:", field, "Value:", value, "Item:", item);
         item_row = this.get_item_from_frm(item);
+        console.log("Item row from form:", item_row);
         const item_row_exists = !$.isEmptyObject(item_row);
+        console.log("Item row exists:", item_row_exists);
         const from_selector = field === "qty" && value === "+1";
         if (from_selector)
           value = flt(item_row.stock_qty) + 1;
         if (item_row_exists) {
+          console.log("Updating existing item in cart");
           if (field === "qty")
             value = flt(value);
           if (["qty", "conversion_factor"].includes(field) && value > 0 && !this.allow_negative_stock) {
@@ -640,7 +994,9 @@
             this.update_cart_html(item_row);
           }
         } else {
+          console.log("Adding new item to cart");
           if (!this.frm.doc.customer && !this.settings.custom_mobile_number_based_customer) {
+            console.log("No customer selected - showing alert");
             return this.raise_customer_selection_alert();
           }
           frappe.flags.ignore_company_party_validation = true;
@@ -902,6 +1258,106 @@
         }
       } else {
         this.payment.checkout();
+      }
+    }
+    async submit_invoice() {
+      try {
+        console.log("POS submit_invoice method called", this.frm);
+        if (!this.frm || !this.frm.doc) {
+          throw new Error("Form not properly initialized");
+        }
+        const doc = this.frm.doc;
+        if (doc.docstatus === 1) {
+          frappe.show_alert({
+            indicator: "orange",
+            message: __("Invoice is already submitted")
+          });
+          return;
+        }
+        const original_in_words = doc.in_words;
+        const original_base_in_words = doc.base_in_words;
+        doc._pos_submitting = true;
+        let saved_doc;
+        try {
+          if (this.frm.save && typeof this.frm.save === "function") {
+            saved_doc = await this.frm.save();
+          } else {
+            saved_doc = await frappe.call({
+              method: "frappe.desk.form.save.savedocs",
+              args: {
+                doc,
+                action: "Save"
+              }
+            });
+          }
+        } catch (save_error) {
+          console.error("Error saving document:", save_error);
+          throw new Error(`Failed to save document: ${save_error.message}`);
+        }
+        doc.__islocal = false;
+        doc.__unsaved = false;
+        if (original_in_words) {
+          doc.in_words = original_in_words;
+        }
+        if (original_base_in_words) {
+          doc.base_in_words = original_base_in_words;
+        }
+        let submitted_doc;
+        try {
+          if (this.frm.submit && typeof this.frm.submit === "function") {
+            submitted_doc = await this.frm.submit();
+          } else {
+            submitted_doc = await frappe.call({
+              method: "frappe.desk.form.save.savedocs",
+              args: {
+                doc,
+                action: "Submit"
+              }
+            });
+          }
+        } catch (submit_error) {
+          console.error("Error submitting document:", submit_error);
+          try {
+            submitted_doc = await frappe.call({
+              method: "frappe.client.submit",
+              args: {
+                doc
+              }
+            });
+          } catch (alt_submit_error) {
+            console.error("Alternative submission also failed:", alt_submit_error);
+            throw new Error(`Failed to submit document: ${submit_error.message}`);
+          }
+        }
+        delete doc._pos_submitting;
+        this.toggle_components(false);
+        this.order_summary.toggle_component(true);
+        this.order_summary.load_summary_of(this.frm.doc, true);
+        frappe.show_alert({
+          indicator: "green",
+          message: __("POS invoice {0} created successfully", [doc.name])
+        });
+        setTimeout(() => {
+          this.order_summary.print_receipt();
+        }, 500);
+        return submitted_doc;
+      } catch (error) {
+        if (this.frm && this.frm.doc) {
+          delete this.frm.doc._pos_submitting;
+        }
+        console.error("Critical error in submit_invoice:", error);
+        if (error.message && error.message.includes("In Words")) {
+          frappe.show_alert({
+            indicator: "orange",
+            message: __("Invoice saved but submission failed. Please try submitting again from the invoice list.")
+          });
+        } else {
+          frappe.show_alert({
+            indicator: "red",
+            message: __("Critical error submitting invoice: {0}", [error.message || "Unknown error"])
+          });
+        }
+        throw error;
       }
     }
   };
@@ -1549,24 +2005,55 @@
         });
       }
       this.$component.on("click", ".item-wrapper", function() {
-        const $item = $(this);
-        const item_code = unescape($item.attr("data-item-code"));
-        let batch_no = unescape($item.attr("data-batch-no"));
-        let serial_no = unescape($item.attr("data-serial-no"));
-        let uom = unescape($item.attr("data-uom"));
-        let rate = unescape($item.attr("data-rate"));
-        let valuation_rate = unescape($item.attr("data-valuation-rate"));
-        let custom_item_uoms = $item.attr("data-item-uoms");
-        let custom_logical_rack = $item.attr("data-item-logical-rack");
-        batch_no = batch_no === "undefined" ? void 0 : batch_no;
-        serial_no = serial_no === "undefined" ? void 0 : serial_no;
-        uom = uom === "undefined" ? void 0 : uom;
-        rate = rate === "undefined" ? void 0 : rate;
-        me.events.item_selected({
-          field: "qty",
-          value: "+1",
-          item: { item_code, batch_no, serial_no, uom, rate, valuation_rate, custom_item_uoms, custom_logical_rack }
-        });
+        try {
+          console.log("Item clicked - starting add to cart process");
+          const $item = $(this);
+          const item_code = unescape($item.attr("data-item-code"));
+          let batch_no = unescape($item.attr("data-batch-no"));
+          let serial_no = unescape($item.attr("data-serial-no"));
+          let uom = unescape($item.attr("data-uom"));
+          let rate = unescape($item.attr("data-rate"));
+          let valuation_rate = unescape($item.attr("data-valuation-rate"));
+          let custom_item_uoms = $item.attr("data-item-uoms");
+          let custom_logical_rack = $item.attr("data-item-logical-rack");
+          console.log("Item data extracted:", {
+            item_code,
+            batch_no,
+            serial_no,
+            uom,
+            rate,
+            valuation_rate
+          });
+          batch_no = batch_no === "undefined" ? void 0 : batch_no;
+          serial_no = serial_no === "undefined" ? void 0 : serial_no;
+          uom = uom === "undefined" ? void 0 : uom;
+          rate = rate === "undefined" ? void 0 : rate;
+          console.log("Calling me.events.item_selected with:", {
+            field: "qty",
+            value: "+1",
+            item: { item_code, batch_no, serial_no, uom, rate, valuation_rate, custom_item_uoms, custom_logical_rack }
+          });
+          if (!me.events || !me.events.item_selected) {
+            console.error("Error: me.events.item_selected is not defined!", me.events);
+            frappe.show_alert({
+              message: __("Error: Cart functionality not initialized"),
+              indicator: "red"
+            });
+            return;
+          }
+          me.events.item_selected({
+            field: "qty",
+            value: "+1",
+            item: { item_code, batch_no, serial_no, uom, rate, valuation_rate, custom_item_uoms, custom_logical_rack }
+          });
+          console.log("Item successfully added to cart");
+        } catch (error) {
+          console.error("Error adding item to cart:", error);
+          frappe.show_alert({
+            message: __("Error adding item to cart: ") + error.message,
+            indicator: "red"
+          });
+        }
       });
       this.search_field.$input.on("input", (e) => {
         clearTimeout(this.last_search);
@@ -1659,216 +2146,310 @@
 
   // ../posnext/posnext/public/js/pos_item_cart.js
   frappe.provide("posnext.PointOfSale");
+  if (!posnext.PointOfSale.Logger) {
+    posnext.PointOfSale.Logger = {
+      error: function(context, error, show_alert = true) {
+        if (frappe.boot && frappe.boot.developer_mode) {
+          console.error(`[POS ItemCart][${context}]:`, error);
+        }
+        if (show_alert && error.message) {
+          frappe.show_alert({
+            message: __("Error in {0}: {1}", [context, error.message]),
+            indicator: "red"
+          });
+        }
+        if (error.critical) {
+          frappe.call({
+            method: "frappe.core.doctype.error_log.error_log.log_error",
+            args: {
+              title: `POS ItemCart ${context} Error`,
+              error: error.stack || error.message || String(error)
+            },
+            freeze: false
+          });
+        }
+      },
+      warning: function(context, message, show_alert = false) {
+        if (frappe.boot && frappe.boot.developer_mode) {
+          console.warn(`[POS ItemCart][${context}]:`, message);
+        }
+        if (show_alert) {
+          frappe.show_alert({
+            message: __("Warning: {0}", [message]),
+            indicator: "orange"
+          });
+        }
+      },
+      info: function(context, message, show_alert = false) {
+        if (frappe.boot && frappe.boot.developer_mode) {
+          console.info(`[POS ItemCart][${context}]:`, message);
+        }
+        if (show_alert) {
+          frappe.show_alert({
+            message: __("Info: {0}", [message]),
+            indicator: "blue"
+          });
+        }
+      }
+    };
+  }
   var _a;
   posnext.PointOfSale.ItemCart = (_a = class {
     constructor({ wrapper, events, settings }) {
-      this.wrapper = wrapper;
-      this.events = events;
-      this.settings = settings;
-      this.init_settings();
-      this.init_component();
+      var _a5;
+      try {
+        if (!wrapper) {
+          throw new Error("Wrapper element is required for ItemCart initialization");
+        }
+        if (!events) {
+          throw new Error("Events object is required for ItemCart initialization");
+        }
+        if (!settings) {
+          throw new Error("Settings object is required for ItemCart initialization");
+        }
+        this.logger = posnext.PointOfSale.Logger;
+        this.wrapper = wrapper.jquery ? wrapper : $(wrapper);
+        if (!this.wrapper.length) {
+          throw new Error("Invalid wrapper element provided");
+        }
+        this.events = events;
+        this.customer_info = void 0;
+        this.settings = settings || {};
+        this.hide_images = this.settings.hide_images || false;
+        this.allowed_customer_groups = this.settings.customer_groups || [];
+        this.allow_rate_change = this.settings.allow_rate_change || false;
+        this.allow_discount_change = this.settings.allow_discount_change || false;
+        this.show_held_button = this.settings.custom_show_held_button || false;
+        this.show_order_list_button = this.settings.custom_show_order_list_button || false;
+        this.mobile_number_based_customer = this.settings.custom_mobile_number_based_customer || false;
+        this.show_checkout_button = this.settings.custom_show_checkout_button !== false;
+        this.custom_edit_rate = this.settings.custom_edit_rate_and_uom || false;
+        this.custom_use_discount_percentage = this.settings.custom_use_discount_percentage || false;
+        this.custom_use_discount_amount = this.settings.custom_use_discount_amount || false;
+        this.custom_use_additional_discount_amount = this.settings.custom_use_additional_discount_amount || false;
+        this.custom_show_incoming_rate = this.settings.custom_show_incoming_rate && this.settings.custom_edit_rate_and_uom || false;
+        this.custom_show_last_customer_rate = this.settings.custom_show_last_customer_rate || false;
+        this.custom_show_logical_rack_in_cart = this.settings.custom_show_logical_rack_in_cart && this.settings.custom_edit_rate_and_uom || false;
+        this.custom_show_uom_in_cart = this.settings.custom_show_uom_in_cart && this.settings.custom_edit_rate_and_uom || false;
+        this.show_branch = this.settings.show_branch || false;
+        this.show_batch_in_cart = this.settings.show_batch_in_cart || false;
+        this.custom_show_item_discription = this.settings.custom_show_item_discription || false;
+        this.custom_show_item_barcode = this.settings.custom_show_item_barcode || false;
+        this.warehouse = this.settings.warehouse || "";
+        this.init_component();
+      } catch (error) {
+        (_a5 = this.logger) == null ? void 0 : _a5.error("Constructor", error, true);
+        throw error;
+      }
     }
-    init_settings() {
-      this.customer_info = void 0;
-      this.hide_images = this.settings.hide_images;
-      this.allowed_customer_groups = this.settings.customer_groups;
-      this.allow_rate_change = this.settings.allow_rate_change;
-      this.allow_discount_change = this.settings.allow_discount_change;
-      this.show_held_button = this.settings.custom_show_held_button;
-      this.show_order_list_button = this.settings.custom_show_order_list_button;
-      this.mobile_number_based_customer = this.settings.custom_mobile_number_based_customer;
-      this.show_checkout_button = this.settings.custom_show_checkout_button;
-      this.custom_edit_rate = this.settings.custom_edit_rate_and_uom;
-      this.custom_use_discount_percentage = this.settings.custom_use_discount_percentage;
-      this.custom_use_discount_amount = this.settings.custom_use_discount_amount;
-      this.custom_use_additional_discount_amount = this.settings.custom_use_additional_discount_amount;
-      this.custom_show_incoming_rate = this.settings.custom_show_incoming_rate && this.settings.custom_edit_rate_and_uom;
-      this.custom_show_last_customer_rate = this.settings.custom_show_last_customer_rate;
-      this.custom_show_logical_rack_in_cart = this.settings.custom_show_logical_rack_in_cart && this.settings.custom_edit_rate_and_uom;
-      this.custom_show_uom_in_cart = this.settings.custom_show_uom_in_cart && this.settings.custom_edit_rate_and_uom;
-      this.show_branch = this.settings.show_branch;
-      this.show_batch_in_cart = this.settings.show_batch_in_cart;
-      this.custom_show_item_discription = this.settings.custom_show_item_discription;
-      this.custom_show_item_barcode = this.settings.custom_show_item_barcode;
-      this.warehouse = this.settings.warehouse;
+    safe_css_operation(element, property, value) {
+      var _a5, _b;
+      if (!element || !element.length) {
+        (_a5 = this.logger) == null ? void 0 : _a5.warning("CSS Operation", "Element not found for CSS operation", false);
+        return false;
+      }
+      try {
+        if (typeof property === "object") {
+          element.css(property);
+        } else {
+          element.css(property, value);
+        }
+        return true;
+      } catch (error) {
+        (_b = this.logger) == null ? void 0 : _b.error("CSS Operation", error, false);
+        return false;
+      }
+    }
+    validate_element(element, elementName) {
+      var _a5;
+      if (!element || !element.length) {
+        (_a5 = this.logger) == null ? void 0 : _a5.warning("Element Validation", `${elementName} element not found or empty`, false);
+        return false;
+      }
+      return true;
     }
     init_component() {
+      var _a5, _b, _c;
       try {
+        (_a5 = this.logger) == null ? void 0 : _a5.info("Component Initialization", "Starting ItemCart component initialization");
         this.prepare_dom();
         this.init_child_components();
         this.bind_events();
         this.attach_shortcuts();
+        (_b = this.logger) == null ? void 0 : _b.info("Component Initialization", "ItemCart component initialized successfully");
       } catch (error) {
-        console.error("Error initializing item cart component:", error);
-        frappe.show_alert({
-          message: __("Error initializing cart component: {0}", [error.message]),
-          indicator: "red"
-        });
+        (_c = this.logger) == null ? void 0 : _c.error("Component Initialization", {
+          message: "Failed to initialize ItemCart component",
+          originalError: error,
+          critical: true
+        }, true);
+        throw error;
       }
     }
     prepare_dom() {
+      var _a5, _b;
       try {
-        if (this.custom_edit_rate) {
-          this.wrapper.append(
-            `<section class="customer-cart-container customer-cart-container1 " 
-				             style="grid-column: span 5 / span 5;" 
-				             id="customer-cart-container2"
-				             role="region" 
-				             aria-label="${__("Shopping Cart and Customer Information")}"
-				             tabindex="0"></section>`
-          );
-        } else {
-          this.wrapper.append(
-            `<section class="customer-cart-container customer-cart-container1 " 
-				             id="customer-cart-container2"
-				             role="region" 
-				             aria-label="${__("Shopping Cart and Customer Information")}"
-				             tabindex="0"></section>`
-          );
+        if (!this.validate_element(this.wrapper, "wrapper")) {
+          throw new Error("Wrapper element validation failed");
         }
-        this.$component = this.wrapper.find("." + posnext.PointOfSale.ItemCart.CONSTANTS.CSS_CLASSES.CUSTOMER_CART_CONTAINER);
+        const gridStyle = this.custom_edit_rate ? 'style="grid-column: span 5 / span 5;"' : "";
+        const containerHtml = `<section class="customer-cart-container customer-cart-container1" ${gridStyle} id="customer-cart-container2"></section>`;
+        this.wrapper.append(containerHtml);
+        this.$component = this.wrapper.find(".customer-cart-container1");
+        if (!this.validate_element(this.$component, "component container")) {
+          throw new Error("Failed to create or find component container");
+        }
+        (_a5 = this.logger) == null ? void 0 : _a5.info("DOM Preparation", "DOM structure prepared successfully");
       } catch (error) {
-        console.error("Error preparing DOM:", error);
-        frappe.show_alert({
-          message: __("Error preparing cart interface: {0}", [error.message]),
-          indicator: "red"
-        });
+        (_b = this.logger) == null ? void 0 : _b.error("DOM Preparation", {
+          message: "Failed to prepare DOM structure",
+          originalError: error,
+          critical: true
+        }, true);
+        throw error;
       }
     }
     init_child_components() {
-      this.init_customer_selector();
-      this.init_cart_components();
+      var _a5, _b;
+      try {
+        this.init_customer_selector();
+        this.init_cart_components();
+        (_a5 = this.logger) == null ? void 0 : _a5.info("Child Components", "All child components initialized successfully");
+      } catch (error) {
+        (_b = this.logger) == null ? void 0 : _b.error("Child Components", {
+          message: "Failed to initialize child components",
+          originalError: error,
+          critical: true
+        }, true);
+        throw error;
+      }
     }
     init_customer_selector() {
-      this.$component.append(
-        `<div class="${posnext.PointOfSale.ItemCart.CONSTANTS.CSS_CLASSES.CUSTOMER_SECTION}" 
-			      role="region" 
-			      aria-label="${__("Customer Selection")}"
-			      aria-live="polite"></div>`
-      );
-      this.$customer_section = this.$component.find("." + posnext.PointOfSale.ItemCart.CONSTANTS.CSS_CLASSES.CUSTOMER_SECTION);
-      this.make_customer_selector();
+      var _a5, _b;
+      try {
+        if (!this.validate_element(this.$component, "component container")) {
+          throw new Error("Component container not available for customer selector");
+        }
+        this.$component.append(`<div class="${posnext.PointOfSale.ItemCart.CONSTANTS.CSS_CLASSES.CUSTOMER_SECTION}"></div>`);
+        this.$customer_section = this.$component.find("." + posnext.PointOfSale.ItemCart.CONSTANTS.CSS_CLASSES.CUSTOMER_SECTION);
+        if (!this.validate_element(this.$customer_section, "customer section")) {
+          throw new Error("Failed to create or find customer section");
+        }
+        this.make_customer_selector();
+        (_a5 = this.logger) == null ? void 0 : _a5.info("Customer Selector", "Customer selector initialized successfully");
+      } catch (error) {
+        (_b = this.logger) == null ? void 0 : _b.error("Customer Selector", {
+          message: "Failed to initialize customer selector",
+          originalError: error
+        }, true);
+        throw error;
+      }
     }
     reset_customer_selector() {
-      try {
-        const frm = this.events.get_frm();
-        frm.set_value(posnext.PointOfSale.ItemCart.CONSTANTS.FIELD_NAMES.CUSTOMER, "");
-        this.make_customer_selector();
-        this.customer_field.set_focus();
-      } catch (error) {
-        console.error("Error resetting customer selector:", error);
-        frappe.show_alert({
-          message: __("Error resetting customer selection: {0}", [error.message]),
-          indicator: "red"
-        });
-      }
+      const frm = this.events.get_frm();
+      frm.set_value("customer", "");
+      this.make_customer_selector();
+      this.customer_field.set_focus();
     }
     init_cart_components() {
-      var html = `<div class="cart-container" role="region" aria-label="${__("Shopping Cart Items")}">
-				<div class="abs-cart-container">
-					<div class="cart-label" role="heading" aria-level="2">${__("Item Cart")}</div>
-					<div class="cart-header" role="row">
-						<div class="name-header" style="flex:3" role="columnheader" aria-label="${__("Item Name")}">${__("Item")}</div>
-						<div class="qty-header" style="flex: 1" role="columnheader" aria-label="${__("Quantity")}">${__("Qty")}</div>
-						`;
-      if (this.custom_show_uom_in_cart) {
-        html += `<div class="uom-header" style="flex: 1" role="columnheader" aria-label="${__("Unit of Measure")}">${__("UOM")}</div>`;
-      }
-      if (this.show_batch_in_cart) {
-        html += `<div class="batch-header" style="flex: 1" role="columnheader" aria-label="${__("Batch Number")}">${__("Batch")}</div>`;
-      }
-      if (this.custom_edit_rate) {
-        html += `<div class="rate-header" style="flex: 1" role="columnheader" aria-label="${__("Item Rate")}">${__("Rate")}</div>`;
-      }
-      if (this.custom_use_discount_percentage) {
-        html += `<div class="discount-perc-header" style="flex: 1" role="columnheader" aria-label="${__("Discount Percentage")}">${__("Disc%")}</div>`;
-      }
-      if (this.custom_use_discount_amount) {
-        html += `<div class="discount-amount-header" style="flex: 1" role="columnheader" aria-label="${__("Discount Amount")}">${__("Disc")}</div>`;
-      }
-      if (this.custom_show_incoming_rate) {
-        html += `<div class="incoming-rate-header" style="flex: 1" role="columnheader" aria-label="${__("Incoming Rate")}">${__("Inc.Rate")}</div>`;
-      }
-      if (this.custom_show_logical_rack_in_cart) {
-        html += `<div class="incoming-rate-header" style="flex: 1" role="columnheader" aria-label="${__("Storage Rack")}">${__("Rack")}</div>`;
-      }
-      if (this.custom_show_last_customer_rate) {
-        html += `<div class="last-customer-rate-header" style="flex: 1" role="columnheader" aria-label="${__("Last Customer Rate")}">${__("LC Rate")}</div>`;
-      }
-      html += `<div class="rate-amount-header" style="flex: 1;text-align: left" role="columnheader" aria-label="${__("Total Amount")}">${__("Amount")}</div>
+      var _a5, _b;
+      try {
+        if (!this.validate_element(this.$component, "component container")) {
+          throw new Error("Component container not available for cart components");
+        }
+        let html = `<div class="${posnext.PointOfSale.ItemCart.CONSTANTS.CSS_CLASSES.CART_CONTAINER}">
+					<div class="abs-cart-container">
+						<div class="cart-label">${__("Item Cart")}</div>
+						<div class="${posnext.PointOfSale.ItemCart.CONSTANTS.CSS_CLASSES.CART_HEADER}">
+							<div class="name-header" style="flex:3">${__("Item")}</div>
+							<div class="qty-header" style="flex: 1">${__("Qty")}</div>`;
+        if (this.custom_show_uom_in_cart) {
+          html += `<div class="uom-header" style="flex: 1">${__("UOM")}</div>`;
+        }
+        if (this.show_batch_in_cart) {
+          html += `<div class="batch-header" style="flex: 1">${__("Batch")}</div>`;
+        }
+        if (this.custom_edit_rate) {
+          html += `<div class="rate-header" style="flex: 1">${__("Rate")}</div>`;
+        }
+        if (this.custom_use_discount_percentage) {
+          html += `<div class="discount-perc-header" style="flex: 1">${__("Disc%")}</div>`;
+        }
+        if (this.custom_use_discount_amount) {
+          html += `<div class="discount-amount-header" style="flex: 1">${__("Disc")}</div>`;
+        }
+        if (this.custom_show_incoming_rate) {
+          html += `<div class="incoming-rate-header" style="flex: 1">${__("Inc.Rate")}</div>`;
+        }
+        if (this.custom_show_logical_rack_in_cart) {
+          html += `<div class="logical-rack-header" style="flex: 1">${__("Rack")}</div>`;
+        }
+        if (this.custom_show_last_customer_rate) {
+          html += `<div class="last-customer-rate-header" style="flex: 1">${__("LC Rate")}</div>`;
+        }
+        html += `<div class="rate-amount-header" style="flex: 1;text-align: left">${__("Amount")}</div>
+						</div>
+						<div class="${posnext.PointOfSale.ItemCart.CONSTANTS.CSS_CLASSES.CART_ITEMS_WRAPPER}"></div>
+						<div class="cart-branch-section"></div>
+						<div class="${posnext.PointOfSale.ItemCart.CONSTANTS.CSS_CLASSES.TOTALS_SECTION}"></div>
+						<div class="${posnext.PointOfSale.ItemCart.CONSTANTS.CSS_CLASSES.NUMPAD_SECTION}"></div>
 					</div>
-					<div class="cart-items-section" role="grid" aria-label="${__("Cart Items List")}" aria-live="polite"></div>
-					<div class="cart-branch-section" role="region" aria-label="${__("Branch Selection")}"></div>
-					<div class="cart-totals-section" role="region" aria-label="${__("Cart Totals and Actions")}" aria-live="polite"></div>
-					<div class="numpad-section" role="region" aria-label="${__("Number Pad for Item Editing")}"></div>
-				</div>
-			</div>`;
-      this.$component.append(html);
-      this.$cart_container = this.$component.find(".cart-container");
-      this.make_branch_section();
-      this.make_cart_totals_section();
-      this.make_cart_items_section();
-      this.make_cart_numpad();
-      this.cache_dom_elements();
-    }
-    cache_dom_elements() {
-      this.$checkout_btn = this.$component.find(".checkout-btn");
-      this.$checkout_btn_held = this.$component.find(".checkout-btn-held");
-      this.$checkout_btn_order = this.$component.find(".checkout-btn-order");
-      this.$edit_cart_btn = this.$component.find(".edit-cart-btn");
-      this.$add_discount_wrapper = this.$component.find(".add-discount-wrapper");
-      this.$reset_customer_btn = this.$customer_section.find(".reset-customer-btn");
-      this.$customer_display = this.$customer_section.find(".customer-display");
-      this.refresh_cart_item_cache();
-    }
-    refresh_cart_item_cache() {
-      this.$cart_item_wrappers = this.$cart_container.find(".cart-item-wrapper");
-    }
-    validate_mobile_number(mobile_number) {
-      if (!mobile_number) {
-        throw new Error(__("Mobile number is required"));
+				</div>`;
+        this.$component.append(html);
+        this.$cart_container = this.$component.find("." + posnext.PointOfSale.ItemCart.CONSTANTS.CSS_CLASSES.CART_CONTAINER);
+        if (!this.validate_element(this.$cart_container, "cart container")) {
+          throw new Error("Failed to create or find cart container");
+        }
+        this.make_branch_section();
+        this.make_cart_totals_section();
+        this.make_cart_items_section();
+        this.make_cart_numpad();
+        (_a5 = this.logger) == null ? void 0 : _a5.info("Cart Components", "Cart components initialized successfully");
+      } catch (error) {
+        (_b = this.logger) == null ? void 0 : _b.error("Cart Components", {
+          message: "Failed to initialize cart components",
+          originalError: error
+        }, true);
+        throw error;
       }
-      const sanitized = mobile_number.toString().replace(/\D/g, "");
-      const required_length = this.settings.custom_mobile_number_length || 10;
-      if (sanitized.length !== required_length) {
-        throw new Error(__("Mobile Number must be exactly {0} digits long. Currently entered: {1} digits", [required_length, sanitized.length]));
-      }
-      if (!/^\d+$/.test(sanitized)) {
-        throw new Error(__("Mobile Number must contain only digits"));
-      }
-      if (sanitized.includes("0000000000") || sanitized.includes("1111111111") || sanitized.includes("2222222222") || sanitized.includes("3333333333") || sanitized.includes("4444444444") || sanitized.includes("5555555555") || sanitized.includes("6666666666") || sanitized.includes("7777777777") || sanitized.includes("8888888888") || sanitized.includes("9999999999")) {
-        throw new Error(__("Invalid mobile number pattern"));
-      }
-      return sanitized;
-    }
-    sanitize_customer_input(input) {
-      if (!input)
-        return "";
-      return input.toString().replace(/[<>]/g, "").replace(/javascript:/gi, "").replace(/on\w+=/gi, "").trim();
-    }
-    validate_numeric_input(value, field_name, min = 0, max = null) {
-      const num = flt(value);
-      if (isNaN(num)) {
-        throw new Error(__("Invalid {0}: must be a number", [field_name]));
-      }
-      if (num < min) {
-        throw new Error(__("Invalid {0}: cannot be less than {1}", [field_name, min]));
-      }
-      if (max !== null && num > max) {
-        throw new Error(__("Invalid {0}: cannot be greater than {1}", [field_name, max]));
-      }
-      return num;
     }
     make_cart_items_section() {
-      this.$cart_header = this.$component.find(".cart-header");
-      this.$cart_items_wrapper = this.$component.find("." + posnext.PointOfSale.ItemCart.CONSTANTS.CSS_CLASSES.CART_ITEMS_WRAPPER);
-      this.make_no_items_placeholder();
+      var _a5, _b;
+      try {
+        this.$cart_header = this.$component.find("." + posnext.PointOfSale.ItemCart.CONSTANTS.CSS_CLASSES.CART_HEADER);
+        this.$cart_items_wrapper = this.$component.find("." + posnext.PointOfSale.ItemCart.CONSTANTS.CSS_CLASSES.CART_ITEMS_WRAPPER);
+        if (!this.validate_element(this.$cart_header, "cart header")) {
+          throw new Error("Cart header element not found");
+        }
+        if (!this.validate_element(this.$cart_items_wrapper, "cart items wrapper")) {
+          throw new Error("Cart items wrapper element not found");
+        }
+        this.make_no_items_placeholder();
+        (_a5 = this.logger) == null ? void 0 : _a5.info("Cart Items Section", "Cart items section initialized successfully");
+      } catch (error) {
+        (_b = this.logger) == null ? void 0 : _b.error("Cart Items Section", {
+          message: "Failed to initialize cart items section",
+          originalError: error
+        }, true);
+        throw error;
+      }
     }
     make_no_items_placeholder() {
-      this.$cart_header.css("display", "none");
-      this.$cart_items_wrapper.html(
-        `<div class="no-item-wrapper">${__(posnext.PointOfSale.ItemCart.CONSTANTS.MESSAGES.NO_ITEMS)}</div>`
-      );
+      var _a5, _b;
+      try {
+        this.safe_css_operation(this.$cart_header, "display", "none");
+        if (this.validate_element(this.$cart_items_wrapper, "cart items wrapper")) {
+          this.$cart_items_wrapper.html(
+            `<div class="no-item-wrapper">${__(posnext.PointOfSale.ItemCart.CONSTANTS.MESSAGES.NO_ITEMS)}</div>`
+          );
+        }
+        (_a5 = this.logger) == null ? void 0 : _a5.info("No Items Placeholder", "No items placeholder created successfully");
+      } catch (error) {
+        (_b = this.logger) == null ? void 0 : _b.error("No Items Placeholder", {
+          message: "Failed to create no items placeholder",
+          originalError: error
+        }, false);
+      }
     }
     get_discount_icon() {
       return `<svg class="discount-icon" width="24" height="24" viewBox="0 0 24 24" stroke="currentColor" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1926,12 +2507,7 @@
 				<div>0.00</div>
 			</div>
 			<div style=" display: flex;justify-content: space-between;gap: 10px;">
-				<div class="checkout-btn" 
-				     role="button" 
-				     tabindex="0" 
-				     aria-label="${__("Checkout Order (F1)")}"
-				     aria-describedby="checkout-description"
-				     style="
+				<div class="checkout-btn" style="
 							padding: 10px;
 							align-items: center;
 							justify-content: center;
@@ -1940,12 +2516,7 @@
 							border-radius: 5px;
 							cursor: pointer;
 							flex: 1; ">${__("Checkout (F1)")}</div>
-				<div class="checkout-btn-held checkout-btn" 
-				     role="button" 
-				     tabindex="0" 
-				     aria-label="${__("Hold Invoice (F2)")}"
-				     aria-describedby="hold-description"
-				     style="
+				<div class="checkout-btn-held checkout-btn" style="
 							padding: 10px;
 							align-items: center;
 							justify-content: center;
@@ -1954,12 +2525,7 @@
 							border-radius: 5px;
 							cursor: pointer;
 							flex: 1;">${__("Held (F2)")}</div>
-				<div class="checkout-btn-order checkout-btn" 
-				     role="button" 
-				     tabindex="0" 
-				     aria-label="${__("View Order List (F3)")}"
-				     aria-describedby="order-description"
-				     style="
+				<div class="checkout-btn-order checkout-btn" style="
 				padding: 10px;
 							align-items: center;
 							justify-content: center;
@@ -1967,12 +2533,7 @@
 							border: none;
 							border-radius: 5px;
 							cursor: pointer;
-							flex: 1;">${__("Orders (F3)")}</div>
-			</div>
-			<div style="display: none;">
-				<span id="checkout-description">${__("Process customer checkout and complete transaction")}</span>
-				<span id="hold-description">${__("Save current invoice for later completion")}</span>
-				<span id="order-description">${__("View list of pending and saved orders")}</span>
+							flex: 1;">${__("Order List (F3)")}</div>
 			</div>	
 			<div class="edit-cart-btn">${__("Edit Cart")}</div>`
       );
@@ -2002,211 +2563,332 @@
         fieldnames_map: { "Quantity": "qty", "Discount": "discount_percentage" }
       });
       this.$numpad_section.prepend(
-        `<div class="numpad-totals" 
-			      role="region" 
-			      aria-label="${__("Order Summary Totals")}"
-			      aria-live="polite">
-				<span class="numpad-item-qty-total" 
-				      role="status" 
-				      aria-label="${__("Item Quantity Total")}"></span>
-				<span class="numpad-net-total" 
-				      role="status" 
-				      aria-label="${__("Net Total Amount")}"></span>
-				<span class="numpad-grand-total" 
-				      role="status" 
-				      aria-label="${__("Grand Total Amount")}"></span>
+        `<div class="numpad-totals">
+			<span class="numpad-item-qty-total"></span>
+				<span class="numpad-net-total"></span>
+				<span class="numpad-grand-total"></span>
 			</div>`
       );
       this.$numpad_section.append(
-        `<div class="numpad-btn checkout-btn" 
-			      role="button" 
-			      tabindex="0" 
-			      aria-label="${__("Checkout Order from Numpad")}"
-			      data-button-value="checkout">${__("Checkout")}</div>`
+        `<div class="numpad-btn checkout-btn" data-button-value="checkout">${__("Checkout")}</div>`
       );
     }
     bind_events() {
-      const me = this;
-      this.$customer_section.on("click", ".reset-customer-btn", function() {
-        me.reset_customer_selector();
-      });
-      this.$customer_section.on("click", ".close-details-btn", function() {
-        me.toggle_customer_info(false);
-      });
-      this.$customer_section.on("click", ".customer-display", function(e) {
-        if ($(e.target).closest(".reset-customer-btn").length)
+      var _a5, _b, _c, _d;
+      try {
+        (_a5 = this.logger) == null ? void 0 : _a5.info("Event Binding", "Starting event binding for cart components");
+        const me = this;
+        if (!this.validate_element(this.$customer_section, "Customer section"))
           return;
-        const show = me.$cart_container.is(":visible");
-        me.toggle_customer_info(show);
-      });
-      if (!me.custom_edit_rate) {
-        this.$cart_items_wrapper.on("click", ".cart-item-wrapper", function() {
-          const $cart_item = $(this);
-          me.toggle_item_highlight(this);
-          const payment_section_hidden = !me.$totals_section.find(".edit-cart-btn").is(":visible");
-          if (!payment_section_hidden) {
-            me.$totals_section.find(".edit-cart-btn").click();
+        this.$customer_section.on("click", ".reset-customer-btn", function() {
+          var _a6;
+          try {
+            me.reset_customer_selector();
+          } catch (error) {
+            (_a6 = me.logger) == null ? void 0 : _a6.error("Customer Reset", {
+              message: "Failed to reset customer selector",
+              originalError: error
+            }, false);
           }
-          const item_row_name = unescape($cart_item.attr("data-row-name"));
-          me.events.cart_item_clicked({ name: item_row_name });
-          this.numpad_value = "";
         });
-      }
-      this.$component.on("click", ".checkout-btn", async function() {
-        if ($(this).attr("style").indexOf("--blue-500") == -1)
+        this.$customer_section.on("click", ".close-details-btn", function() {
+          var _a6;
+          try {
+            me.toggle_customer_info(false);
+          } catch (error) {
+            (_a6 = me.logger) == null ? void 0 : _a6.error("Customer Details", {
+              message: "Failed to close customer details",
+              originalError: error
+            }, false);
+          }
+        });
+        this.$customer_section.on("click", ".customer-display", function(e) {
+          var _a6;
+          try {
+            if ($(e.target).closest(".reset-customer-btn").length)
+              return;
+            const show = me.$cart_container.is(":visible");
+            me.toggle_customer_info(show);
+          } catch (error) {
+            (_a6 = me.logger) == null ? void 0 : _a6.error("Customer Display", {
+              message: "Failed to toggle customer display",
+              originalError: error
+            }, false);
+          }
+        });
+        if (!this.validate_element(this.$cart_items_wrapper, "Cart items wrapper"))
           return;
-        if ($(this).attr("class").indexOf("checkout-btn-held") !== -1)
-          return;
-        if ($(this).attr("class").indexOf("checkout-btn-order") !== -1)
-          return;
-        try {
-          if (!cur_frm.doc.customer && me.mobile_number_based_customer) {
-            const dialog = me.create_mobile_dialog(async function(values) {
-              try {
-                const validated_mobile = me.validate_mobile_number(values["mobile_number"]);
-                await me.create_customer_and_proceed(validated_mobile);
-                await me.events.checkout();
-                me.toggle_checkout_btn(false);
-                me.allow_discount_change && me.$add_discount_elem.removeClass("d-none");
-                dialog.hide();
-              } catch (error) {
-                frappe.show_alert({
-                  message: __("Error creating customer and proceeding with checkout: {0}", [error.message]),
-                  indicator: "red"
-                });
+        if (!me.custom_edit_rate) {
+          this.$cart_items_wrapper.on("click", ".cart-item-wrapper", function() {
+            var _a6, _b2, _c2;
+            try {
+              const $cart_item = $(this);
+              if (!$cart_item.length) {
+                (_a6 = me.logger) == null ? void 0 : _a6.warn("Cart Item Click", "Cart item element not found");
+                return;
               }
-            });
-            dialog.show();
-          } else {
-            if (!cur_frm.doc.customer && !me.mobile_number_based_customer) {
-              frappe.throw("Please Select a customer and add items first");
+              me.toggle_item_highlight(this);
+              const payment_section_hidden = !me.$totals_section.find(".edit-cart-btn").is(":visible");
+              if (!payment_section_hidden) {
+                me.$totals_section.find(".edit-cart-btn").click();
+              }
+              const item_row_name = unescape($cart_item.attr("data-row-name"));
+              if (!item_row_name) {
+                (_b2 = me.logger) == null ? void 0 : _b2.warn("Cart Item Click", "Item row name not found");
+                return;
+              }
+              me.events.cart_item_clicked({ name: item_row_name });
+              this.numpad_value = "";
+            } catch (error) {
+              (_c2 = me.logger) == null ? void 0 : _c2.error("Cart Item Click", {
+                message: "Failed to handle cart item click",
+                originalError: error
+              }, false);
+            }
+          });
+        }
+        if (!this.validate_element(this.$component, "Component wrapper"))
+          return;
+        this.$component.on("click", ".checkout-btn", async function() {
+          var _a6, _b2, _c2;
+          try {
+            if ($(this).attr("style").indexOf("--blue-500") == -1)
+              return;
+            if ($(this).attr("class").indexOf("checkout-btn-held") !== -1)
+              return;
+            if ($(this).attr("class").indexOf("checkout-btn-order") !== -1)
+              return;
+            (_a6 = me.logger) == null ? void 0 : _a6.info("Checkout", "Checkout button clicked");
+            if (!cur_frm.doc.customer && me.mobile_number_based_customer) {
+              try {
+                const dialog = me.create_mobile_dialog(async function(values) {
+                  var _a7;
+                  try {
+                    if (values["mobile_number"].length !== me.settings.custom_mobile_number_length) {
+                      frappe.throw("Mobile Number Length is " + me.settings.custom_mobile_number_length.toString());
+                      return;
+                    }
+                    await me.create_customer_and_proceed(values["mobile_number"]);
+                    await me.events.checkout();
+                    me.toggle_checkout_btn(false);
+                    me.allow_discount_change && me.$add_discount_elem.removeClass("d-none");
+                    dialog.hide();
+                  } catch (error) {
+                    (_a7 = me.logger) == null ? void 0 : _a7.error("Checkout Mobile Dialog", {
+                      message: "Error in mobile dialog checkout",
+                      originalError: error
+                    }, false);
+                  }
+                });
+                dialog.show();
+              } catch (error) {
+                (_b2 = me.logger) == null ? void 0 : _b2.error("Checkout Dialog Creation", {
+                  message: "Failed to create mobile dialog for checkout",
+                  originalError: error
+                }, false);
+              }
+            } else {
+              if (!cur_frm.doc.customer && !me.mobile_number_based_customer) {
+                frappe.throw("Please Select a customer and add items first");
+                return;
+              }
+              await me.events.checkout();
+              me.toggle_checkout_btn(false);
+              me.allow_discount_change && me.$add_discount_elem.removeClass("d-none");
+            }
+          } catch (error) {
+            (_c2 = me.logger) == null ? void 0 : _c2.error("Checkout", {
+              message: "Error during checkout",
+              originalError: error
+            }, false);
+            frappe.msgprint(__("Error during checkout. Please try again."));
+          }
+        });
+        this.$component.on("click", ".checkout-btn-held", function() {
+          var _a6, _b2;
+          try {
+            if ($(this).attr("style").indexOf("--blue-500") == -1)
+              return;
+            if (!cur_frm.doc.items.length) {
+              frappe.throw("Cannot save empty invoice");
               return;
             }
-            await me.events.checkout();
-            me.toggle_checkout_btn(false);
-            me.allow_discount_change && me.$add_discount_elem.removeClass("d-none");
-          }
-        } catch (error) {
-          frappe.show_alert({
-            message: __("Error during checkout process: {0}", [error.message]),
-            indicator: "red"
-          });
-        }
-      });
-      this.$component.on("click", ".checkout-btn-held", function() {
-        if ($(this).attr("style").indexOf("--blue-500") == -1)
-          return;
-        if (!cur_frm.doc.items.length) {
-          frappe.throw("Cannot save empty invoice");
-          return;
-        }
-        if (!cur_frm.doc.customer && me.mobile_number_based_customer) {
-          const mobile_dialog = me.create_mobile_dialog(function(values) {
-            try {
-              const validated_mobile = me.validate_mobile_number(values["mobile_number"]);
-              frappe.call({
-                method: "posnext.posnext.page.posnext.point_of_sale.create_customer",
-                args: { customer: validated_mobile },
-                freeze: true,
-                freeze_message: "Creating Customer....",
-                callback: function() {
-                  const frm = me.events.get_frm();
-                  frappe.model.set_value(frm.doc.doctype, frm.doc.name, posnext.PointOfSale.ItemCart.CONSTANTS.FIELD_NAMES.CUSTOMER, validated_mobile);
-                  frm.script_manager.trigger("customer", frm.doc.doctype, frm.doc.name).then(() => {
-                    frappe.run_serially([
-                      () => me.fetch_customer_details(validated_mobile),
-                      () => me.events.customer_details_updated(me.customer_info),
-                      () => me.update_customer_section(),
-                      () => me.show_secret_key_popup_for_hold()
-                    ]);
+            (_a6 = me.logger) == null ? void 0 : _a6.info("Hold", "Hold button clicked");
+            if (!cur_frm.doc.customer && me.mobile_number_based_customer) {
+              const mobile_dialog = me.create_mobile_dialog(function(values) {
+                var _a7;
+                try {
+                  const mobile_number = values["mobile_number"] || "";
+                  const required_length = me.settings.custom_mobile_number_length || 10;
+                  if (!mobile_number) {
+                    frappe.throw(__("Please enter a mobile number"));
+                    return;
+                  }
+                  if (mobile_number.length !== required_length) {
+                    frappe.throw(__("Mobile Number must be exactly {0} digits long. Currently entered: {1} digits", [required_length, mobile_number.length]));
+                    return;
+                  }
+                  if (!/^\d+$/.test(mobile_number)) {
+                    frappe.throw(__("Mobile Number must contain only digits"));
+                    return;
+                  }
+                  frappe.call({
+                    method: "posnext.posnext.page.posnext.point_of_sale.create_customer",
+                    args: { customer: mobile_number },
+                    freeze: true,
+                    freeze_message: "Creating Customer....",
+                    callback: function() {
+                      const frm = me.events.get_frm();
+                      frappe.model.set_value(frm.doc.doctype, frm.doc.name, "customer", mobile_number);
+                      frm.script_manager.trigger("customer", frm.doc.doctype, frm.doc.name).then(() => {
+                        frappe.run_serially([
+                          () => me.fetch_customer_details(mobile_number),
+                          () => me.events.customer_details_updated(me.customer_info),
+                          () => me.update_customer_section(),
+                          () => me.show_secret_key_popup_for_hold()
+                        ]);
+                      });
+                      mobile_dialog.hide();
+                    },
+                    error: function(r) {
+                      var _a8;
+                      (_a8 = me.logger) == null ? void 0 : _a8.error("Customer Creation", {
+                        message: "Failed to create customer",
+                        originalError: r
+                      }, false);
+                      frappe.show_alert({
+                        message: __("Failed to create customer. Please try again."),
+                        indicator: "red"
+                      });
+                    }
                   });
-                  mobile_dialog.hide();
-                },
-                error: function(r) {
-                  frappe.show_alert({
-                    message: __("Failed to create customer: {0}", [r.message || "Unknown error"]),
-                    indicator: "red"
-                  });
+                } catch (error) {
+                  (_a7 = me.logger) == null ? void 0 : _a7.error("Hold Mobile Dialog", {
+                    message: "Error in hold mobile dialog",
+                    originalError: error
+                  }, false);
                 }
               });
-            } catch (error) {
-              frappe.show_alert({
-                message: error.message,
-                indicator: "red"
-              });
+              mobile_dialog.show();
+            } else {
+              if (!cur_frm.doc.customer && !me.mobile_number_based_customer) {
+                frappe.throw("Please select a customer before holding the invoice");
+                return;
+              }
+              me.show_secret_key_popup_for_hold();
+            }
+          } catch (error) {
+            (_b2 = me.logger) == null ? void 0 : _b2.error("Hold Action", {
+              message: "Error during hold action",
+              originalError: error
+            }, false);
+          }
+        });
+        this.$component.on("click", ".checkout-btn-order", () => {
+          var _a6;
+          try {
+            this.events.toggle_recent_order();
+          } catch (error) {
+            (_a6 = this.logger) == null ? void 0 : _a6.error("Recent Order", {
+              message: "Failed to toggle recent order",
+              originalError: error
+            }, false);
+          }
+        });
+        this.$totals_section.on("click", ".edit-cart-btn", () => {
+          var _a6;
+          try {
+            this.events.edit_cart();
+            this.toggle_checkout_btn(true);
+          } catch (error) {
+            (_a6 = this.logger) == null ? void 0 : _a6.error("Edit Cart", {
+              message: "Failed to edit cart",
+              originalError: error
+            }, false);
+          }
+        });
+        this.$component.on("click", ".add-discount-wrapper", () => {
+          var _a6;
+          try {
+            const can_edit_discount = this.$add_discount_elem.find(".edit-discount-btn").length;
+            if (!this.discount_field || can_edit_discount)
+              this.show_discount_control();
+          } catch (error) {
+            (_a6 = this.logger) == null ? void 0 : _a6.error("Discount Control", {
+              message: "Failed to show discount control",
+              originalError: error
+            }, false);
+          }
+        });
+        try {
+          const $wrapper = $(".add-branch-wrapper");
+          const posProfileName = me.settings.name;
+          const branchFieldWrapper = $('<div class="branch-field"></div>');
+          $wrapper.replaceWith(branchFieldWrapper);
+          frappe.call({
+            method: "posnext.doc_events.pos_profile.get_pos_profile_branch",
+            args: {
+              pos_profile_name: posProfileName
+            },
+            callback: function(r) {
+              var _a6;
+              try {
+                const branch_name = r.message && r.message.branch;
+                let branchField = new frappe.ui.form.ControlLink({
+                  df: {
+                    fieldtype: "Link",
+                    options: "Branch",
+                    fieldname: "branch",
+                    label: "Branch",
+                    placeholder: "Select Branch",
+                    default: branch_name,
+                    reqd: 1
+                  },
+                  parent: branchFieldWrapper
+                });
+                branchField.make();
+                branchField.set_value(branch_name);
+                branchField.refresh();
+              } catch (error) {
+                (_a6 = me.logger) == null ? void 0 : _a6.error("Branch Field Setup", {
+                  message: "Failed to setup branch field",
+                  originalError: error
+                }, false);
+              }
+            },
+            error: function(error) {
+              var _a6;
+              (_a6 = me.logger) == null ? void 0 : _a6.error("Branch Profile Fetch", {
+                message: "Failed to fetch branch profile",
+                originalError: error
+              }, false);
             }
           });
-          mobile_dialog.show();
-        } else {
-          if (!cur_frm.doc.customer && !me.mobile_number_based_customer) {
-            frappe.throw("Please select a customer before holding the invoice");
-            return;
-          }
-          me.show_secret_key_popup_for_hold();
+        } catch (error) {
+          (_b = this.logger) == null ? void 0 : _b.error("Branch Wrapper", {
+            message: "Failed to setup branch wrapper",
+            originalError: error
+          }, false);
         }
-      });
-      this.$component.on("click", ".checkout-btn-order", () => {
-        this.events.toggle_recent_order();
-      });
-      this.$component.on("keydown", '[role="button"][tabindex="0"]', function(e) {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          $(this).click();
-        }
-      });
-      this.$totals_section.on("click", ".edit-cart-btn", () => {
-        this.events.edit_cart();
-        this.toggle_checkout_btn(true);
-      });
-      this.$component.on("click", ".add-discount-wrapper", () => {
-        const can_edit_discount = this.$add_discount_elem.find(".edit-discount-btn").length;
-        if (!this.discount_field || can_edit_discount)
-          this.show_discount_control();
-      });
-      const $wrapper = $(posnext.PointOfSale.ItemCart.CONSTANTS.SELECTORS.BRANCH_WRAPPER);
-      const posProfileName = me.settings.name;
-      const branchFieldWrapper = $('<div class="branch-field"></div>');
-      $wrapper.replaceWith(branchFieldWrapper);
-      frappe.call({
-        method: "posnext.doc_events.pos_profile.get_pos_profile_branch",
-        args: {
-          pos_profile_name: posProfileName
-        },
-        callback: function(r) {
+        frappe.ui.form.on("Sales Invoice", "paid_amount", (frm) => {
+          var _a6;
           try {
-            const branch_name = r.message && r.message.branch;
-            let branchField = new frappe.ui.form.ControlLink({
-              df: {
-                fieldtype: "Link",
-                options: "Branch",
-                fieldname: posnext.PointOfSale.ItemCart.CONSTANTS.FIELD_NAMES.BRANCH,
-                label: "Branch",
-                placeholder: "Select Branch",
-                default: branch_name,
-                reqd: 1
-              },
-              parent: branchFieldWrapper
-            });
-            branchField.make();
-            branchField.set_value(branch_name);
-            branchField.refresh();
+            this.update_totals_section(frm);
           } catch (error) {
-            frappe.show_alert({
-              message: __("Error creating branch field: {0}", [error.message]),
-              indicator: "red"
-            });
+            (_a6 = this.logger) == null ? void 0 : _a6.error("Paid Amount Update", {
+              message: "Failed to update totals section on paid amount change",
+              originalError: error
+            }, false);
           }
-        },
-        error: function(r) {
-          frappe.show_alert({
-            message: __("Failed to load branch information: {0}", [r.message || "Unknown error"]),
-            indicator: "red"
-          });
-        }
-      });
-      frappe.ui.form.on("Sales Invoice", "paid_amount", (frm) => {
-        this.update_totals_section(frm);
-      });
+        });
+        (_c = this.logger) == null ? void 0 : _c.info("Event Binding", "All cart events bound successfully");
+      } catch (error) {
+        (_d = this.logger) == null ? void 0 : _d.error("Event Binding", {
+          message: "Critical error during event binding",
+          originalError: error
+        }, true);
+        frappe.msgprint(__("Failed to initialize cart events. Please refresh the page."));
+      }
     }
     create_mobile_dialog(callback) {
       const me = this;
@@ -2286,7 +2968,9 @@
       const secret_dialog = me.create_secret_dialog(function(values) {
         const frm = me.events.get_frm();
         const invoice_name = frm.doc.name;
+        console.log("Secret key entered, validating and saving...");
         if (!me.events.save_draft_invoice) {
+          console.error("save_draft_invoice is undefined");
           frappe.show_alert({
             message: __("Save draft invoice function is not available. Please check POS configuration."),
             indicator: "red"
@@ -2295,6 +2979,7 @@
           return;
         }
         if (invoice_name && !frm.doc.__islocal) {
+          console.log("Validating permission for existing invoice:", invoice_name);
           frappe.call({
             method: "posnext.posnext.page.posnext.point_of_sale.check_edit_permission",
             args: {
@@ -2305,6 +2990,7 @@
             freeze_message: "Validating Secret Key...",
             callback: function(r) {
               if (r.message.can_edit) {
+                console.log("Permission validated, saving existing invoice");
                 const invoice_info = {
                   name: frm.doc.name,
                   customer: frm.doc.customer,
@@ -2312,6 +2998,7 @@
                 };
                 frappe.model.set_value(frm.doc.doctype, frm.doc.name, "created_by_name", invoice_info.created_by_name);
                 Promise.resolve(me.events.save_draft_invoice()).then(() => {
+                  console.log("Existing draft saved successfully:", invoice_info.name);
                   secret_dialog.hide();
                   frappe.show_alert({
                     message: __("Invoice {0} held successfully by {1}", [invoice_info.name, invoice_info.created_by_name]),
@@ -2319,9 +3006,11 @@
                   });
                   frappe.utils.play_sound("submit");
                   setTimeout(() => {
+                    console.log("About to call handle_successful_hold with delay");
                     me.handle_successful_hold(invoice_info.name, invoice_info.created_by_name);
                   }, 500);
                 }).catch((error) => {
+                  console.error("Error saving existing draft:", error);
                   frappe.show_alert({
                     message: __("Failed to save draft invoice: {0}", [error.message]),
                     indicator: "red"
@@ -2338,6 +3027,7 @@
             }
           });
         } else {
+          console.log("Validating secret key for new invoice");
           frappe.call({
             method: "posnext.posnext.page.posnext.point_of_sale.get_user_name_from_secret_key",
             args: { secret_key: values["secret_key"] },
@@ -2345,6 +3035,7 @@
             callback: function(r) {
               if (r.message) {
                 const created_by_name = r.message;
+                console.log("Secret key validated, saving new invoice");
                 const invoice_info = {
                   name: frm.doc.name,
                   customer: frm.doc.customer,
@@ -2352,6 +3043,7 @@
                 };
                 frappe.model.set_value(frm.doc.doctype, frm.doc.name, "created_by_name", created_by_name);
                 Promise.resolve(me.events.save_draft_invoice()).then(() => {
+                  console.log("New draft saved successfully:", invoice_info.name);
                   secret_dialog.hide();
                   frappe.show_alert({
                     message: __("Invoice {0} held successfully by {1}", [invoice_info.name, invoice_info.created_by_name]),
@@ -2359,9 +3051,11 @@
                   });
                   frappe.utils.play_sound("submit");
                   setTimeout(() => {
+                    console.log("About to call handle_successful_hold with delay");
                     me.handle_successful_hold(invoice_info.name, invoice_info.created_by_name);
                   }, 500);
                 }).catch((error) => {
+                  console.error("Error saving new draft:", error);
                   frappe.show_alert({
                     message: __("Failed to save draft invoice: {0}", [error.message]),
                     indicator: "red"
@@ -2463,7 +3157,7 @@
           freeze_message: "Processing..."
         });
         const frm = me.events.get_frm();
-        frappe.model.set_value(frm.doc.doctype, frm.doc.name, posnext.PointOfSale.ItemCart.CONSTANTS.FIELD_NAMES.CUSTOMER, mobile_number);
+        frappe.model.set_value(frm.doc.doctype, frm.doc.name, "customer", mobile_number);
         await frm.script_manager.trigger("customer", frm.doc.doctype, frm.doc.name);
         await me.fetch_customer_details(mobile_number);
         me.events.customer_details_updated(me.customer_info);
@@ -2476,11 +3170,14 @@
       }
     }
     async handle_successful_hold(invoice_name, creator_name) {
+      console.log("handle_successful_hold called with:", invoice_name, creator_name);
       try {
+        console.log("Opening order list to show held invoice...");
         if (this.$component && this.$component.length) {
           this.$component.css("display", "none");
         }
         await this.events.toggle_recent_order();
+        console.log("Order list opened successfully");
         setTimeout(() => {
           frappe.show_alert({
             message: __('Find your held invoice "{0}" in the order list', [invoice_name]),
@@ -2488,6 +3185,7 @@
           });
         }, 1e3);
       } catch (error) {
+        console.error("Error in handle_successful_hold:", error);
         frappe.show_alert({
           message: __("Invoice held successfully, but error opening order list: {0}", [error.message]),
           indicator: "orange"
@@ -2519,27 +3217,27 @@
         }
       }
       const ctrl_label = frappe.utils.is_mac() ? "\u2318" : "Ctrl";
-      this.$checkout_btn.attr("title", `${ctrl_label}+Enter`);
+      this.$component.find(".checkout-btn").attr("title", `${ctrl_label}+Enter`);
       frappe.ui.keys.add_shortcut({
         shortcut: "ctrl+enter",
-        action: () => this.$checkout_btn.click(),
-        condition: () => this.$component.is(":visible") && !this.$edit_cart_btn.is(":visible"),
+        action: () => this.$component.find(".checkout-btn").click(),
+        condition: () => this.$component.is(":visible") && !this.$totals_section.find(".edit-cart-btn").is(":visible"),
         description: __("Checkout Order / Submit Order / New Order"),
         ignore_inputs: true,
         page: cur_page.page.page
       });
-      this.$edit_cart_btn.attr("title", `${ctrl_label}+E`);
+      this.$component.find(".edit-cart-btn").attr("title", `${ctrl_label}+E`);
       frappe.ui.keys.on("ctrl+e", () => {
         const item_cart_visible = this.$component.is(":visible");
-        const checkout_btn_invisible = !this.$checkout_btn.is("visible");
+        const checkout_btn_invisible = !this.$totals_section.find(".checkout-btn").is("visible");
         if (item_cart_visible && checkout_btn_invisible) {
-          this.$edit_cart_btn.click();
+          this.$component.find(".edit-cart-btn").click();
         }
       });
-      this.$add_discount_wrapper.attr("title", `${ctrl_label}+D`);
+      this.$component.find(".add-discount-wrapper").attr("title", `${ctrl_label}+D`);
       frappe.ui.keys.add_shortcut({
         shortcut: "ctrl+d",
-        action: () => this.$add_discount_wrapper.click(),
+        action: () => this.$component.find(".add-discount-wrapper").click(),
         condition: () => this.$add_discount_elem.is(":visible"),
         description: __("Add Order Discount"),
         ignore_inputs: true,
@@ -2557,54 +3255,149 @@
       const item_is_highlighted = $cart_item.attr("style") == "background-color:var(--gray-50);";
       if (!item || item_is_highlighted) {
         this.item_is_selected = false;
-        this.$cart_item_wrappers.css("background-color", "");
+        this.$cart_container.find(".cart-item-wrapper").css("background-color", "");
       } else {
         $cart_item.css("background-color", "var(--control-bg)");
         this.item_is_selected = true;
-        this.$cart_item_wrappers.not(item).css("background-color", "");
+        this.$cart_container.find(".cart-item-wrapper").not(item).css("background-color", "");
       }
     }
     make_customer_selector() {
-      this.$customer_section.html(`
-			<div class="customer-field"></div>
-		`);
-      const me = this;
-      const query = { query: "posnext.controllers.queries.customer_query" };
-      const allowed_customer_group = this.allowed_customer_groups || [];
-      if (allowed_customer_group.length) {
-        query.filters = {
-          customer_group: ["in", allowed_customer_group]
-        };
+      var _a5, _b, _c, _d, _e, _f, _g, _h;
+      try {
+        (_a5 = this.logger) == null ? void 0 : _a5.info("Customer Selector", "Creating customer selector component");
+        if (!this.validate_element(this.$customer_section, "Customer section")) {
+          throw new Error("Customer section not available");
+        }
+        const CONSTANTS = posnext.PointOfSale.ItemCart.CONSTANTS;
+        if (!CONSTANTS || !CONSTANTS.FIELD_LABELS) {
+          console.warn("Constants not available, using fallback values");
+        }
+        this.$customer_section.html(`
+				<div class="customer-field"></div>
+			`);
+        const me = this;
+        const query = { query: "posnext.controllers.queries.customer_query" };
+        const allowed_customer_group = this.allowed_customer_groups || [];
+        if (allowed_customer_group.length) {
+          query.filters = {
+            customer_group: ["in", allowed_customer_group]
+          };
+        }
+        const customer_field_container = this.$customer_section.find(".customer-field");
+        if (!customer_field_container.length) {
+          (_b = this.logger) == null ? void 0 : _b.error("Customer Selector", {
+            message: "Customer field container not found after HTML insertion"
+          }, false);
+          throw new Error("Customer field container not found");
+        }
+        if (!frappe.ui || !frappe.ui.form || !frappe.ui.form.make_control) {
+          (_c = this.logger) == null ? void 0 : _c.error("Customer Selector", {
+            message: "Frappe UI components not available"
+          }, false);
+          throw new Error("Frappe UI components not available");
+        }
+        const customerLabel = CONSTANTS && CONSTANTS.FIELD_LABELS && CONSTANTS.FIELD_LABELS.CUSTOMER ? CONSTANTS.FIELD_LABELS.CUSTOMER : "Customer";
+        try {
+          this.customer_field = frappe.ui.form.make_control({
+            df: {
+              label: __(customerLabel),
+              fieldtype: "Link",
+              options: "Customer",
+              placeholder: __("Search by customer name, phone, email."),
+              read_only: this.mobile_number_based_customer,
+              get_query: () => {
+                var _a6;
+                try {
+                  return query;
+                } catch (error) {
+                  (_a6 = me.logger) == null ? void 0 : _a6.error("Customer Query", {
+                    message: "Error building customer query",
+                    originalError: error
+                  }, false);
+                  return {};
+                }
+              },
+              onchange: function() {
+                var _a6, _b2, _c2;
+                try {
+                  if (this.value) {
+                    (_a6 = me.logger) == null ? void 0 : _a6.info("Customer Change", `Customer selected: ${this.value}`);
+                    const frm = me.events.get_frm();
+                    if (!frm) {
+                      (_b2 = me.logger) == null ? void 0 : _b2.error("Customer Change", {
+                        message: "Form reference not found"
+                      }, false);
+                      return;
+                    }
+                    frappe.dom.freeze();
+                    frappe.model.set_value(frm.doc.doctype, frm.doc.name, "customer", this.value);
+                    frm.script_manager.trigger("customer", frm.doc.doctype, frm.doc.name).then(() => {
+                      frappe.run_serially([
+                        () => me.fetch_customer_details(this.value),
+                        () => me.events.customer_details_updated(me.customer_info),
+                        () => me.update_customer_section(),
+                        () => me.update_totals_section(),
+                        () => frappe.dom.unfreeze()
+                      ]).catch((error) => {
+                        var _a7;
+                        (_a7 = me.logger) == null ? void 0 : _a7.error("Customer Update Chain", {
+                          message: "Error in customer update sequence",
+                          originalError: error
+                        }, false);
+                        frappe.dom.unfreeze();
+                      });
+                    }).catch((error) => {
+                      var _a7;
+                      (_a7 = me.logger) == null ? void 0 : _a7.error("Customer Trigger", {
+                        message: "Error triggering customer script",
+                        originalError: error
+                      }, false);
+                      frappe.dom.unfreeze();
+                    });
+                  }
+                } catch (error) {
+                  (_c2 = me.logger) == null ? void 0 : _c2.error("Customer Field Change", {
+                    message: "Error in customer field onchange handler",
+                    originalError: error
+                  }, false);
+                  frappe.dom.unfreeze();
+                }
+              }
+            },
+            parent: customer_field_container,
+            render_input: true
+          });
+        } catch (controlError) {
+          (_d = this.logger) == null ? void 0 : _d.error("Customer Control Creation", {
+            message: "Failed to create customer field control",
+            originalError: controlError
+          }, false);
+          throw controlError;
+        }
+        if (!this.customer_field) {
+          (_e = this.logger) == null ? void 0 : _e.error("Customer Selector", {
+            message: "Customer field control is null after creation"
+          }, false);
+          throw new Error("Customer field control creation failed");
+        }
+        try {
+          this.customer_field.toggle_label(false);
+        } catch (labelError) {
+          (_f = this.logger) == null ? void 0 : _f.error("Customer Field Label", {
+            message: "Error configuring customer field label",
+            originalError: labelError
+          }, false);
+        }
+        (_g = this.logger) == null ? void 0 : _g.info("Customer Selector", "Customer selector created successfully");
+      } catch (error) {
+        (_h = this.logger) == null ? void 0 : _h.error("Customer Selector", {
+          message: "Critical error creating customer selector",
+          originalError: error
+        }, true);
+        frappe.msgprint(__("Failed to initialize customer selector. Please refresh the page."));
+        throw error;
       }
-      this.customer_field = frappe.ui.form.make_control({
-        df: {
-          label: __("Customer"),
-          fieldtype: "Link",
-          options: "Customer",
-          placeholder: __("Search by customer name, phone, email."),
-          read_only: this.mobile_number_based_customer,
-          get_query: () => query,
-          onchange: function() {
-            if (this.value) {
-              const frm = me.events.get_frm();
-              frappe.dom.freeze();
-              frappe.model.set_value(frm.doc.doctype, frm.doc.name, posnext.PointOfSale.ItemCart.CONSTANTS.FIELD_NAMES.CUSTOMER, this.value);
-              frm.script_manager.trigger("customer", frm.doc.doctype, frm.doc.name).then(() => {
-                frappe.run_serially([
-                  () => me.fetch_customer_details(this.value),
-                  () => me.events.customer_details_updated(me.customer_info),
-                  () => me.update_customer_section(),
-                  () => me.update_totals_section(),
-                  () => frappe.dom.unfreeze()
-                ]);
-              });
-            }
-          }
-        },
-        parent: this.$customer_section.find(".customer-field"),
-        render_input: true
-      });
-      this.customer_field.toggle_label(false);
     }
     fetch_customer_details(customer) {
       if (customer) {
@@ -2621,29 +3414,12 @@
                     this.customer_info = __spreadProps(__spreadValues({}, message), { customer, loyalty_points, conversion_factor });
                     resolve();
                   }
-                },
-                error: (r) => {
-                  console.error("Error fetching loyalty program details:", r);
-                  frappe.show_alert({
-                    message: __("Error loading customer loyalty details: {0}", [r.message || "Unknown error"]),
-                    indicator: "red"
-                  });
-                  this.customer_info = __spreadProps(__spreadValues({}, message), { customer });
-                  resolve();
                 }
               });
             } else {
               this.customer_info = __spreadProps(__spreadValues({}, message), { customer });
               resolve();
             }
-          }).catch((error) => {
-            console.error("Error fetching customer details:", error);
-            frappe.show_alert({
-              message: __("Error loading customer information: {0}", [error.message]),
-              indicator: "red"
-            });
-            this.customer_info = { customer };
-            resolve();
           });
         });
       } else {
@@ -2671,26 +3447,17 @@
             input_class: "input-xs",
             onchange: function() {
               setTimeout(() => {
-                try {
-                  const validated_value = me.validate_numeric_input(this.value, "Discount Amount", 0);
-                  if (validated_value != 0) {
-                    frappe.model.set_value(frm.doc.doctype, frm.doc.name, "discount_amount", validated_value);
-                    me.hide_discount_control(validated_value);
-                  } else {
-                    frappe.model.set_value(frm.doc.doctype, frm.doc.name, "discount_amount", 0);
-                    me.$add_discount_elem.css({
-                      "border": "1px dashed var(--gray-500)",
-                      "padding": "var(--padding-sm) var(--padding-md)"
-                    });
-                    me.$add_discount_elem.html(`${me.get_discount_icon()} ${__("Add Discount")}`);
-                    me.discount_field = void 0;
-                  }
-                } catch (error) {
-                  frappe.show_alert({
-                    message: error.message,
-                    indicator: "red"
+                if (flt(this.value) != 0) {
+                  frappe.model.set_value(frm.doc.doctype, frm.doc.name, "discount_amount", flt(this.value));
+                  me.hide_discount_control(this.value);
+                } else {
+                  frappe.model.set_value(frm.doc.doctype, frm.doc.name, "discount_amount", 0);
+                  me.$add_discount_elem.css({
+                    "border": "1px dashed var(--gray-500)",
+                    "padding": "var(--padding-sm) var(--padding-md)"
                   });
-                  this.set_value(0);
+                  me.$add_discount_elem.html(`${me.get_discount_icon()} ${__("Add Discount")}`);
+                  me.discount_field = void 0;
                 }
               }, 3e3);
             }
@@ -2707,26 +3474,17 @@
             input_class: "input-xs",
             onchange: function() {
               setTimeout(() => {
-                try {
-                  const validated_value = me.validate_numeric_input(this.value, "Discount Percentage", 0, 100);
-                  if (validated_value != 0) {
-                    frappe.model.set_value(frm.doc.doctype, frm.doc.name, "additional_discount_percentage", validated_value);
-                    me.hide_discount_control(validated_value);
-                  } else {
-                    frappe.model.set_value(frm.doc.doctype, frm.doc.name, "additional_discount_percentage", 0);
-                    me.$add_discount_elem.css({
-                      "border": "1px dashed var(--gray-500)",
-                      "padding": "var(--padding-sm) var(--padding-md)"
-                    });
-                    me.$add_discount_elem.html(`${me.get_discount_icon()} ${__("Add Discount")}`);
-                    me.discount_field = void 0;
-                  }
-                } catch (error) {
-                  frappe.show_alert({
-                    message: error.message,
-                    indicator: "red"
+                if (flt(this.value) != 0) {
+                  frappe.model.set_value(frm.doc.doctype, frm.doc.name, "additional_discount_percentage", flt(this.value));
+                  me.hide_discount_control(this.value);
+                } else {
+                  frappe.model.set_value(frm.doc.doctype, frm.doc.name, "additional_discount_percentage", 0);
+                  me.$add_discount_elem.css({
+                    "border": "1px dashed var(--gray-500)",
+                    "padding": "var(--padding-sm) var(--padding-md)"
                   });
-                  this.set_value(0);
+                  me.$add_discount_elem.html(`${me.get_discount_icon()} ${__("Add Discount")}`);
+                  me.discount_field = void 0;
                 }
               }, 3e3);
             }
@@ -2785,9 +3543,9 @@
 				</div>`
         );
         if (this.mobile_number_based_customer) {
-          this.$reset_customer_btn.css("display", "none");
+          this.$customer_section.find(".reset-customer-btn").css("display", "none");
         } else {
-          this.$reset_customer_btn.css("display", "flex");
+          this.$customer_section.find(".reset-customer-btn").css("display", "flex");
         }
       } else {
         this.reset_customer_selector();
@@ -2897,21 +3655,333 @@
       const no_of_cart_items = this.$cart_items_wrapper.find(".cart-item-wrapper").length;
       this.highlight_checkout_btn(true);
       this.update_empty_cart_section(no_of_cart_items);
-      this.refresh_cart_item_cache();
     }
     render_cart_item(item_data, $item_to_update) {
       const currency = this.events.get_frm().doc.currency;
       const me = this;
-      $item_to_update = this.ensure_item_container(item_data, $item_to_update);
-      const item_html = this.generate_item_html(item_data);
+      if (!$item_to_update.length) {
+        this.$cart_items_wrapper.prepend(
+          `<div class="cart-item-wrapper" data-row-name="${escape(item_data.name)}"></div>
+				<div class="seperator"></div>`
+        );
+        $item_to_update = this.get_cart_item(item_data);
+      }
+      var item_html = `${get_item_image_html()}`;
+      if (me.custom_use_discount_percentage && !me.custom_use_discount_amount) {
+        item_html += `<div class="item-name-desc" style="flex: 2.8">`;
+      }
+      if (me.custom_use_discount_amount && !me.custom_use_discount_percentage) {
+        item_html += `<div class="item-name-desc" style="flex: 2.8">`;
+      }
+      if (me.custom_use_discount_amount && me.custom_use_discount_percentage) {
+        item_html += `<div class="item-name-desc" style="flex: 2.5">`;
+      }
+      if (!me.custom_use_discount_amount && !me.custom_use_discount_percentage) {
+        item_html += `<div class="item-name-desc" style="flex: 3.5">`;
+      }
+      item_html += `<div class="item-name" style="flex: 4; white-space: normal; word-wrap: break-word; overflow: visible; line-height: 1.2;">
+					${item_data.item_name}
+				</div>
+				${get_description_html(item_data)}
+				${get_item_barcode(item_data)}
+			</div>
+			${get_rate_discount_html()}`;
       $item_to_update.html(item_html);
       if (me.custom_edit_rate) {
-        this.setup_item_form_controls(item_data, $item_to_update);
+        this[item_data.item_code + "_qty"] = frappe.ui.form.make_control({
+          df: {
+            fieldname: "qty",
+            fieldtype: "Float",
+            onchange: function() {
+              me.events.form_updated(item_data, "qty", this.value);
+            }
+          },
+          parent: $item_to_update.find(`.item-qty`),
+          render_input: true
+        });
+        var uoms = [];
+        if (item_data.custom_item_uoms) {
+          uoms = item_data.custom_item_uoms.split(",");
+        } else if (item_data.uom) {
+          uoms = [item_data.uom];
+        }
+        if (me.custom_show_uom_in_cart) {
+          this[item_data.item_code + "_uom"] = frappe.ui.form.make_control({
+            df: {
+              fieldname: "uom",
+              fieldtype: "Select",
+              onchange: function() {
+                me.events.form_updated(item_data, "uom", this.value);
+              }
+            },
+            parent: $item_to_update.find(`.item-uom`),
+            render_input: true
+          });
+        }
+        if (me.show_batch_in_cart) {
+          this[item_data.item_code + "_batch"] = frappe.ui.form.make_control({
+            df: {
+              fieldname: "batch",
+              fieldtype: "Link",
+              options: "Batch",
+              get_query: function() {
+                return {
+                  filters: {
+                    item: item_data.item_code
+                  }
+                };
+              },
+              onchange: function() {
+                me.events.form_updated(item_data, "batch_no", this.value);
+              }
+            },
+            parent: $item_to_update.find(`.item-batch`),
+            render_input: true
+          });
+        }
+        this[item_data.item_code + "_rate"] = frappe.ui.form.make_control({
+          df: {
+            fieldname: "rate",
+            fieldtype: "Float",
+            read_only: !me.allow_rate_change,
+            onchange: function() {
+              me.events.form_updated(item_data, "rate", this.value);
+            }
+          },
+          parent: $item_to_update.find(`.item-rate`),
+          render_input: true
+        });
+        if (me.custom_use_discount_percentage) {
+          this[item_data.item_code + "_discount"] = frappe.ui.form.make_control({
+            df: {
+              fieldname: "discount",
+              fieldtype: "Float",
+              onchange: function() {
+                me.events.form_updated(item_data, "discount_percentage", this.value);
+              }
+            },
+            parent: $item_to_update.find(`.item-rate-discount`),
+            render_input: true
+          });
+        }
+        if (me.custom_use_discount_amount) {
+          this[item_data.item_code + "_discount_amount"] = frappe.ui.form.make_control({
+            df: {
+              fieldname: "discount_amount",
+              fieldtype: "Currency",
+              onchange: function() {
+                me.events.form_updated(item_data, "discount_amount", this.value);
+              }
+            },
+            parent: $item_to_update.find(`.item-rate-discount-amount`),
+            render_input: true
+          });
+        }
+        if (this.custom_show_incoming_rate) {
+          this[item_data.item_code + "_incoming_rate"] = frappe.ui.form.make_control({
+            df: {
+              fieldname: "incoming_rate",
+              fieldtype: "Float",
+              read_only: 1
+            },
+            parent: $item_to_update.find(`.item-incoming-rate`),
+            render_input: true
+          });
+        }
+        if (this.custom_show_logical_rack_in_cart) {
+          this[item_data.item_code + "_logical_rack"] = frappe.ui.form.make_control({
+            df: {
+              fieldname: "logical_rack",
+              fieldtype: "Data",
+              read_only: 1
+            },
+            parent: $item_to_update.find(`.item-logical-rack`),
+            render_input: true
+          });
+        }
+        if (this.custom_show_last_customer_rate) {
+          this[item_data.item_code + "_last_customer_rate"] = frappe.ui.form.make_control({
+            df: {
+              fieldname: "last_customer_rate",
+              fieldtype: "Float",
+              read_only: 1
+            },
+            parent: $item_to_update.find(`.item-last-customer-rate`),
+            render_input: true
+          });
+        }
+        this[item_data.item_code + "_amount"] = frappe.ui.form.make_control({
+          df: {
+            fieldname: "amount",
+            fieldtype: "Float",
+            read_only: 1
+          },
+          parent: $item_to_update.find(`.item-rate-amount`),
+          render_input: true
+        });
+        var delete_button = `<svg width="16px" height="16px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" stroke="#ff0000"><g id="SVGRepo_bgCarrier" stroke-width="0"></g><g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round"></g><g id="SVGRepo_iconCarrier"> <path d="M10 11V17" stroke="#ff0000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path> <path d="M14 11V17" stroke="#ff0000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path> <path d="M4 7H20" stroke="#ff0000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path> <path d="M6 7H12H18V18C18 19.6569 16.6569 21 15 21H9C7.34315 21 6 19.6569 6 18V7Z" stroke="#ff0000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path> <path d="M9 5C9 3.89543 9.89543 3 11 3H13C14.1046 3 15 3.89543 15 5V7H9V5Z" stroke="#ff0000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path> </g></svg>`;
+        var remove_button = frappe.ui.form.make_control({
+          df: {
+            fieldname: "remove",
+            fieldtype: "Button",
+            label: delete_button
+          },
+          parent: $item_to_update.find(`.remove-button`),
+          render_input: true
+        });
+        remove_button.refresh();
+        $(remove_button.$input).on("click", function() {
+          me.events.remove_item_from_cart(item_data);
+          me.prev_action = void 0;
+          me.toggle_item_highlight();
+          me.events.numpad_event(void 0, "remove");
+        });
+        this[item_data.item_code + "_qty"].set_value(item_data.qty);
+        if (me.custom_show_uom_in_cart) {
+          this[item_data.item_code + "_uom"].df.options = uoms;
+          this[item_data.item_code + "_uom"].set_value(item_data.uom);
+          this[item_data.item_code + "_uom"].refresh();
+        }
+        if (me.show_batch_in_cart) {
+          this[item_data.item_code + "_batch"].set_value(item_data.batch_no);
+        }
+        this[item_data.item_code + "_amount"].set_value(item_data.amount);
+        this[item_data.item_code + "_rate"].set_value(item_data.rate);
+        if (me.custom_use_discount_percentage) {
+          this[item_data.item_code + "_discount"].set_value(item_data.discount_percentage);
+        }
+        if (me.custom_use_discount_amount) {
+          this[item_data.item_code + "_discount_amount"].set_value(item_data.discount_amount);
+        }
+        if (me.custom_show_incoming_rate) {
+          this[item_data.item_code + "_incoming_rate"].set_value(item_data.custom_valuation_rate);
+        }
+        if (me.custom_show_logical_rack_in_cart) {
+          this[item_data.item_code + "_logical_rack"].set_value(item_data.custom_logical_rack);
+        }
+        if (me.custom_show_last_customer_rate) {
+          if (me.customer_info.customer) {
+            frappe.xcall("posnext.posnext.page.posnext.point_of_sale.get_lcr", {
+              "customer": me.customer_info.customer,
+              "item_code": item_data.item_code
+            }).then((d) => {
+              this[item_data.item_code + "_last_customer_rate"].set_value(d);
+            });
+          }
+        }
+        if (me.custom_show_uom_in_cart) {
+          frappe.xcall("posnext.posnext.page.posnext.point_of_sale.get_uoms", {
+            "item_code": item_data.item_code
+          }).then((d) => {
+            this[item_data.item_code + "_uom"].df.options = d;
+            this[item_data.item_code + "_uom"].refresh();
+          });
+        }
       }
-      if (me.custom_edit_rate) {
-        this.setup_item_form_controls(item_data, $item_to_update);
+      set_dynamic_rate_header_width();
+      function set_dynamic_rate_header_width() {
+        const rate_cols = Array.from(me.$cart_items_wrapper.find(".item-rate-amount"));
+        me.$cart_header.find(".rate-amount-header").css("width", "");
+        me.$cart_items_wrapper.find(".item-rate-amount").css("width", "");
+        let max_width = rate_cols.reduce((max_width2, elm) => {
+          if ($(elm).width() > max_width2)
+            max_width2 = $(elm).width();
+          return max_width2;
+        }, 0);
+        max_width += 1;
+        if (max_width == 1)
+          max_width = "";
+        me.$cart_header.find(".rate-amount-header").css("width", max_width);
+        me.$cart_items_wrapper.find(".item-rate-amount").css("width", max_width);
       }
-      this.set_dynamic_rate_header_width();
+      function get_rate_discount_html() {
+        if (me.custom_edit_rate) {
+          if (item_data.rate && item_data.amount && item_data.rate !== item_data.amount) {
+            var html = `
+                        <div class="item-qty-rate" style="flex: 6">
+                        <div class="item-qty" style="flex: 1"></div>`;
+            if (me.custom_show_uom_in_cart) {
+              html += `<div class="item-uom" style="flex: 1;text-align: left"></div>`;
+            }
+            if (me.show_batch_in_cart) {
+              html += `<div class="item-batch" style="flex: 1;text-align: left"></div>`;
+            }
+            html += `<div class="item-rate" style="flex: 1;"></div>`;
+            if (me.custom_use_discount_percentage) {
+              html += `<div class="item-rate-discount" style="flex: 1;text-align: left"></div>`;
+            }
+            if (me.custom_use_discount_amount) {
+              html += `<div class="item-rate-discount-amount" style="flex: 1;text-align: left"></div>`;
+            }
+            if (me.custom_show_incoming_rate) {
+              html += `<div class="item-incoming-rate" style="flex: 1"></div>`;
+            }
+            if (me.custom_show_logical_rack_in_cart) {
+              html += `<div class="item-logical-rack" style="flex: 1"></div>`;
+            }
+            if (me.custom_show_last_customer_rate) {
+              html += `<div class="item-last-customer-rate" style="flex: 1"></div>`;
+            }
+            html += `<div class="item-rate-amount" style="flex: 1"></div>
+							<div class="remove-button" style="margin-top:15px;display: flex;justify-content: center;align-items: center;"></div>
+                        </div>`;
+            return html;
+          } else {
+            var html = `
+                        <div class="item-qty-rate" style="flex: 6">
+                        <div class="item-qty" style="flex: 1"></div>`;
+            if (me.custom_show_uom_in_cart) {
+              html += `<div class="item-uom" style="flex: 1;text-align: left"></div>`;
+            }
+            if (me.show_batch_in_cart) {
+              html += `<div class="item-batch" style="flex: 1;text-align: left"></div>`;
+            }
+            html += `<div class="item-rate" style="flex: 1;"></div>`;
+            if (me.custom_use_discount_percentage) {
+              html += `<div class="item-rate-discount" style="flex: 1;text-align: left"></div>`;
+            }
+            if (me.custom_use_discount_amount) {
+              html += `<div class="item-rate-discount-amount" style="flex: 1;text-align: left"></div>`;
+            }
+            if (me.custom_show_incoming_rate) {
+              html += `<div class="item-incoming-rate" style="flex: 1"></div>`;
+            }
+            if (me.custom_show_logical_rack_in_cart) {
+              html += `<div class="item-logical-rack" style="flex: 1"></div>`;
+            }
+            if (me.custom_show_last_customer_rate) {
+              html += `<div class="item-last-customer-rate" style="flex: 1"></div>`;
+            }
+            html += `<div class="item-rate-amount" style="flex: 1"></div>
+                            <div class="remove-button" style="margin-top:15px;display: flex;justify-content: center;align-items: center;"></div>
+                        </div>`;
+            return html;
+          }
+        } else {
+          if (item_data.rate && item_data.amount && item_data.rate !== item_data.amount) {
+            return `
+                        <div class="item-qty-rate" style="flex: 4" > 
+                            <div class="item-qty" style="flex: 1"><span>${item_data.qty || 0}</span></div>
+                            <div class="item-qty" style="flex: 1"><span> ${item_data.uom}</span></div>
+							<div class="item-qty" style="flex: 1"><span> ${item_data.batch}</span></div>
+                            <div class="item-rate-amount" style="flex: 1">
+                                <div class="item-rate">${parseFloat(item_data.amount).toFixed(2)}</div>
+                                <div class="item-amount">${parseFloat(item_data.rate).toFixed(2)}</div>
+                            </div>
+                        </div>`;
+          } else {
+            return `
+                        <div class="item-qty-rate" style="flex: 4" >
+                            <div class="item-qty" style="flex: 1" ><span>${item_data.qty || 0}</span></div>
+                            <div class="item-qty" style="flex: 1"><span> ${item_data.uom}</span></div>
+							<div class="item-qty" style="flex: 1"><span> ${item_data.batch}</span></div>
+                            <div class="item-rate-amount" style="flex: 1">
+                                <div class="item-rate">${parseFloat(item_data.rate).toFixed(2)}</div>
+                            </div>
+                        </div>`;
+          }
+        }
+      }
       function get_description_html(item_data2) {
         const hide_description = me.custom_show_item_discription;
         if (hide_description) {
@@ -2947,12 +4017,6 @@
 						`).join("");
               $(`#${barcode_placeholder_id}`).html(html);
             }
-          },
-          error: function(r) {
-            frappe.show_alert({
-              message: __("Error loading barcodes: {0}", [r.message || "Unknown error"]),
-              indicator: "red"
-            });
           }
         });
         return `<div id="${barcode_placeholder_id}" class="item-barcodes"></div>`;
@@ -2982,62 +4046,62 @@
     toggle_checkout_btn(show_checkout) {
       if (show_checkout) {
         if (this.show_checkout_button) {
-          this.$checkout_btn.css("display", "flex");
+          this.$totals_section.find(".checkout-btn").css("display", "flex");
         } else {
-          this.$checkout_btn.css("display", "none");
+          this.$totals_section.find(".checkout-btn").css("display", "none");
         }
         if (this.show_held_button) {
-          this.$checkout_btn_held.css("display", "flex");
+          this.$totals_section.find(".checkout-btn-held").css("display", "flex");
         } else {
-          this.$checkout_btn_held.css("display", "none");
+          this.$totals_section.find(".checkout-btn-held").css("display", "none");
         }
         if (this.show_order_list_button) {
-          this.$checkout_btn_order.css("display", "flex");
+          this.$totals_section.find(".checkout-btn-order").css("display", "flex");
         } else {
-          this.$checkout_btn_order.css("display", "none");
+          this.$totals_section.find(".checkout-btn-order").css("display", "none");
         }
-        this.$edit_cart_btn.css("display", "none");
+        this.$totals_section.find(".edit-cart-btn").css("display", "none");
       } else {
-        this.$checkout_btn.css("display", "none");
-        this.$checkout_btn_held.css("display", "none");
-        this.$checkout_btn_held.css("display", "none");
-        this.$checkout_btn_order.css("display", "none");
-        this.$edit_cart_btn.css("display", "flex");
+        this.$totals_section.find(".checkout-btn").css("display", "none");
+        this.$totals_section.find(".checkout-btn-held").css("display", "none");
+        this.$totals_section.find(".checkout-btn-held").css("display", "none");
+        this.$totals_section.find(".checkout-btn-order").css("display", "none");
+        this.$totals_section.find(".edit-cart-btn").css("display", "flex");
       }
     }
     highlight_checkout_btn(toggle) {
       if (toggle) {
         this.$add_discount_elem.css("display", "flex");
-        this.$checkout_btn.css({
+        this.$cart_container.find(".checkout-btn").css({
           "background-color": "var(--blue-500)"
         });
         if (this.show_held_button) {
-          this.$checkout_btn_held.css({
+          this.$cart_container.find(".checkout-btn-held").css({
             "background-color": "var(--blue-500)"
           });
         } else {
-          this.$checkout_btn_held.css({
+          this.$cart_container.find(".checkout-btn-held").css({
             "background-color": "var(--blue-200)"
           });
         }
         if (this.show_order_list_button) {
-          this.$checkout_btn_order.css({
+          this.$cart_container.find(".checkout-btn-order").css({
             "background-color": "var(--blue-500)"
           });
         } else {
-          this.$checkout_btn_order.css({
+          this.$cart_container.find(".checkout-btn-order").css({
             "background-color": "var(--blue-500)"
           });
         }
       } else {
         this.$add_discount_elem.css("display", "none");
-        this.$checkout_btn.css({
+        this.$cart_container.find(".checkout-btn").css({
           "background-color": "var(--blue-200)"
         });
-        this.$checkout_btn_held.css({
+        this.$cart_container.find(".checkout-btn-held").css({
           "background-color": "var(--blue-200)"
         });
-        this.$checkout_btn_order.css({
+        this.$cart_container.find(".checkout-btn-order").css({
           "background-color": "var(--blue-500)"
         });
       }
@@ -3100,7 +4164,7 @@
           indicator: "orange"
         });
         frappe.utils.play_sound("error");
-        this.numpad_value = this.validate_numeric_input(this.numpad_value, "Discount Percentage", 0, 100);
+        this.numpad_value = current_action;
       }
       this.highlight_numpad_btn($btn, current_action);
       this.events.numpad_event(this.numpad_value, this.prev_action);
@@ -3169,21 +4233,11 @@
 						<div class="customer-desc"></div>
 					</div>
 				</div>
-				<div class="customer-fields-container" 
-				     role="form" 
-				     aria-label="${__("Customer Information Form")}">
-					<div class="email_id-field" 
-					     role="group" 
-					     aria-label="${__("Customer Email Field")}"></div>
-					<div class="mobile_no-field" 
-					     role="group" 
-					     aria-label="${__("Customer Mobile Number Field")}"></div>
-					<div class="loyalty_program-field" 
-					     role="group" 
-					     aria-label="${__("Customer Loyalty Program Field")}"></div>
-					<div class="loyalty_points-field" 
-					     role="group" 
-					     aria-label="${__("Customer Loyalty Points Field")}"></div>
+				<div class="customer-fields-container">
+					<div class="email_id-field"></div>
+					<div class="mobile_no-field"></div>
+					<div class="loyalty_program-field"></div>
+					<div class="loyalty_points-field"></div>
 				</div>
 				<div class="transactions-label">Recent Transactions</div>`
         );
@@ -3401,7 +4455,7 @@
               freeze_message: "Creating Customer...."
             });
             const frm2 = me.events.get_frm();
-            await frappe.model.set_value(frm2.doc.doctype, frm2.doc.name, posnext.PointOfSale.ItemCart.CONSTANTS.FIELD_NAMES.CUSTOMER, mobile_number);
+            await frappe.model.set_value(frm2.doc.doctype, frm2.doc.name, "customer", mobile_number);
             await frm2.script_manager.trigger("customer", frm2.doc.doctype, frm2.doc.name);
           }
           const frm = me.events.get_frm();
@@ -3422,52 +4476,33 @@
           freeze_message: "Creating Customer...."
         });
         const frm = this.events.get_frm();
-        await frappe.model.set_value(frm.doc.doctype, frm.doc.name, posnext.PointOfSale.ItemCart.CONSTANTS.FIELD_NAMES.CUSTOMER, mobile_number);
+        await frappe.model.set_value(frm.doc.doctype, frm.doc.name, "customer", mobile_number);
         await frm.script_manager.trigger("customer", frm.doc.doctype, frm.doc.name);
       }
       await this.events.save_draft_invoice();
     }
   }, __publicField(_a, "CONSTANTS", {
+    CSS_CLASSES: {
+      CUSTOMER_SECTION: "customer-section",
+      CART_CONTAINER: "cart-container",
+      CART_HEADER: "cart-header",
+      CART_ITEMS_WRAPPER: "cart-items-section",
+      TOTALS_SECTION: "cart-totals-section",
+      NUMPAD_SECTION: "numpad-section"
+    },
     FIELD_NAMES: {
       CUSTOMER: "customer",
-      BRANCH: "branch",
-      CREATED_BY_NAME: "created_by_name"
+      ADDITIONAL_DISCOUNT_PERCENTAGE: "additional_discount_percentage",
+      DISCOUNT_AMOUNT: "discount_amount"
     },
-    DOCTYPE: {
-      SALES_INVOICE: "Sales Invoice"
-    },
-    CSS_CLASSES: {
-      CUSTOMER_CART_CONTAINER: "customer-cart-container1",
-      CART_CONTAINER: "cart-container",
-      CUSTOMER_SECTION: "customer-section",
-      CART_ITEMS_WRAPPER: "cart-items-section",
-      BUTTON_CHECKOUT: "checkout-btn",
-      BUTTON_HELD: "checkout-btn-held",
-      BUTTON_ORDER: "checkout-btn-order"
-    },
-    SELECTORS: {
-      BRANCH_WRAPPER: ".add-branch-wrapper",
-      CUSTOMER_DISPLAY: ".customer-display",
-      RESET_CUSTOMER_BTN: ".reset-customer-btn",
-      CLOSE_DETAILS_BTN: ".close-details-btn"
-    },
-    EVENTS: {
-      CLICK: "click",
-      KEYDOWN: "keydown"
-    },
-    KEYS: {
-      F1: "F1",
-      F2: "F2",
-      F3: "F3",
-      F4: "F4",
-      ESCAPE: "Escape"
+    FIELD_LABELS: {
+      CUSTOMER: "Customer"
     },
     MESSAGES: {
       NO_ITEMS: "No items in cart",
-      EMPTY_INVOICE: "Cannot save empty invoice",
-      SELECT_CUSTOMER: "Please select a customer before holding the invoice",
-      MOBILE_LENGTH_ERROR: "Mobile Number must be exactly {0} digits long. Currently entered: {1} digits",
-      MOBILE_DIGITS_ONLY: "Mobile Number must contain only digits"
+      INIT_ERROR: "Error initializing cart component",
+      DOM_PREP_ERROR: "Error preparing DOM elements",
+      CSS_OPERATION_ERROR: "CSS operation failed"
     }
   }), _a);
   document.addEventListener("keydown", function(event) {
@@ -3497,6 +4532,7 @@
       if (orderCheckoutButton) {
         orderCheckoutButton.click();
       } else {
+        console.warn("Order Checkout button not found!");
       }
     }
     if (event.key === "F4" && !isInputActive) {
@@ -3505,6 +4541,7 @@
       if (searchFieldButton) {
         searchFieldButton.click();
       } else {
+        console.warn("Search field button not found!");
       }
     }
   });
@@ -3512,57 +4549,173 @@
   // ../posnext/posnext/public/js/pos_item_details.js
   frappe.provide("posnext.PointOfSale");
   posnext.PointOfSale.ItemDetails = class {
-    constructor({ wrapper, events, settings }) {
+    constructor({ wrapper, events, settings } = {}) {
+      var _a5, _b;
+      if (!wrapper) {
+        throw new Error("ItemDetails constructor requires wrapper parameter");
+      }
+      if (!events) {
+        throw new Error("ItemDetails constructor requires events parameter");
+      }
       this.wrapper = wrapper;
       this.events = events;
-      this.hide_images = settings.hide_images;
-      this.allow_rate_change = settings.allow_rate_change;
-      this.allow_discount_change = settings.allow_discount_change;
-      this.custom_edit_rate_and_uom = settings.custom_edit_rate_and_uom;
+      this.hide_images = (settings == null ? void 0 : settings.hide_images) || false;
+      this.allow_rate_change = (settings == null ? void 0 : settings.allow_rate_change) || false;
+      this.allow_discount_change = (settings == null ? void 0 : settings.allow_discount_change) || false;
+      this.custom_edit_rate_and_uom = (settings == null ? void 0 : settings.custom_edit_rate_and_uom) || false;
       this.current_item = {};
-      this.init_component();
+      this.logger = this.createLogger();
+      try {
+        this.init_component();
+        (_a5 = this.logger) == null ? void 0 : _a5.info("ItemDetails", "Component initialized successfully");
+      } catch (error) {
+        (_b = this.logger) == null ? void 0 : _b.error("ItemDetails", {
+          message: "Failed to initialize component",
+          error: (error == null ? void 0 : error.message) || "Unknown error",
+          stack: error == null ? void 0 : error.stack
+        });
+        throw error;
+      }
+    }
+    createLogger() {
+      if (typeof console === "undefined")
+        return null;
+      return {
+        info: (context, message) => {
+          try {
+            console.log(`[POS ItemDetails - ${context}] ${message}`);
+          } catch (e) {
+          }
+        },
+        error: (context, details) => {
+          try {
+            console.error(`[POS ItemDetails - ${context}] Error:`, details);
+          } catch (e) {
+          }
+        },
+        warn: (context, message) => {
+          try {
+            console.warn(`[POS ItemDetails - ${context}] Warning: ${message}`);
+          } catch (e) {
+          }
+        }
+      };
+    }
+    safeCss(element, property, value) {
+      var _a5, _b;
+      try {
+        if (!element || !element.css || typeof element.css !== "function") {
+          (_a5 = this.logger) == null ? void 0 : _a5.warn("CSS Operation", `Invalid element for CSS operation: ${property}`);
+          return false;
+        }
+        if (value !== void 0) {
+          element.css(property, value);
+        } else {
+          return element.css(property);
+        }
+        return true;
+      } catch (error) {
+        (_b = this.logger) == null ? void 0 : _b.error("CSS Operation", {
+          message: "CSS operation failed",
+          property,
+          value,
+          error: (error == null ? void 0 : error.message) || "Unknown error"
+        });
+        return false;
+      }
     }
     init_component() {
-      this.prepare_dom();
-      this.init_child_components();
-      this.bind_events();
-      this.attach_shortcuts();
+      var _a5, _b;
+      try {
+        this.prepare_dom();
+        this.init_child_components();
+        this.bind_events();
+        this.attach_shortcuts();
+        (_a5 = this.logger) == null ? void 0 : _a5.info("Component", "All components initialized successfully");
+      } catch (error) {
+        (_b = this.logger) == null ? void 0 : _b.error("Component", {
+          message: "Failed to initialize components",
+          error: (error == null ? void 0 : error.message) || "Unknown error"
+        });
+        throw error;
+      }
     }
     prepare_dom() {
-      this.wrapper.append(
-        `<section class="item-details-container" id="item-details-container"></section>`
-      );
-      this.$component = this.wrapper.find(".item-details-container");
+      var _a5, _b;
+      try {
+        if (!this.wrapper || !this.wrapper.append) {
+          throw new Error("Invalid wrapper element for DOM preparation");
+        }
+        this.wrapper.append(
+          `<section class="item-details-container" id="item-details-container"></section>`
+        );
+        this.$component = this.wrapper.find(".item-details-container");
+        if (!this.$component || this.$component.length === 0) {
+          throw new Error("Failed to create item details container");
+        }
+        (_a5 = this.logger) == null ? void 0 : _a5.info("DOM", "DOM structure prepared successfully");
+      } catch (error) {
+        (_b = this.logger) == null ? void 0 : _b.error("DOM", {
+          message: "Failed to prepare DOM structure",
+          error: (error == null ? void 0 : error.message) || "Unknown error"
+        });
+        throw error;
+      }
     }
     init_child_components() {
-      this.$component.html(
-        `<div class="item-details-header">
-				<div class="label">${__("Item Detailss")}</div>
-				<div class="close-btn">
-					<svg width="32" height="32" viewBox="0 0 14 14" fill="none">
-						<path d="M4.93764 4.93759L7.00003 6.99998M9.06243 9.06238L7.00003 6.99998M7.00003 6.99998L4.93764 9.06238L9.06243 4.93759" stroke="#8D99A6"/>
-					</svg>
+      var _a5, _b, _c;
+      try {
+        if (!this.$component || !this.$component.html) {
+          throw new Error("Component container not available for initialization");
+        }
+        this.$component.html(
+          `<div class="item-details-header">
+					<div class="label">${__("Item Detailss")}</div>
+					<div class="close-btn">
+						<svg width="32" height="32" viewBox="0 0 14 14" fill="none">
+							<path d="M4.93764 4.93759L7.00003 6.99998M9.06243 9.06238L7.00003 6.99998M7.00003 6.99998L4.93764 9.06238L9.06243 4.93759" stroke="#8D99A6"/>
+						</svg>
+					</div>
 				</div>
-			</div>
-			<div class="item-display">
-				<div class="item-name-desc-price">
-					<div class="item-name"></div>
-					<div class="item-desc"></div>
-					<div class="item-price"></div>
+				<div class="item-display">
+					<div class="item-name-desc-price">
+						<div class="item-name"></div>
+						<div class="item-desc"></div>
+						<div class="item-price"></div>
+					</div>
+					<div class="item-image"></div>
 				</div>
-				<div class="item-image"></div>
-			</div>
-			<div class="discount-section"></div>
-			<div class="form-container"></div>
-			<div class="serial-batch-container"></div>`
-      );
-      this.$item_name = this.$component.find(".item-name");
-      this.$item_description = this.$component.find(".item-desc");
-      this.$item_price = this.$component.find(".item-price");
-      this.$item_image = this.$component.find(".item-image");
-      this.$form_container = this.$component.find(".form-container");
-      this.$dicount_section = this.$component.find(".discount-section");
-      this.$serial_batch_container = this.$component.find(".serial-batch-container");
+				<div class="discount-section"></div>
+				<div class="form-container"></div>
+				<div class="serial-batch-container"></div>`
+        );
+        this.$item_name = this.$component.find(".item-name");
+        this.$item_description = this.$component.find(".item-desc");
+        this.$item_price = this.$component.find(".item-price");
+        this.$item_image = this.$component.find(".item-image");
+        this.$form_container = this.$component.find(".form-container");
+        this.$dicount_section = this.$component.find(".discount-section");
+        this.$serial_batch_container = this.$component.find(".serial-batch-container");
+        const requiredElements = [
+          { name: "item_name", element: this.$item_name },
+          { name: "item_description", element: this.$item_description },
+          { name: "item_price", element: this.$item_price },
+          { name: "item_image", element: this.$item_image },
+          { name: "form_container", element: this.$form_container }
+        ];
+        for (const { name, element } of requiredElements) {
+          if (!element || element.length === 0) {
+            (_a5 = this.logger) == null ? void 0 : _a5.warn("Child Components", `${name} element not found`);
+          }
+        }
+        (_b = this.logger) == null ? void 0 : _b.info("Child Components", "All child components initialized");
+      } catch (error) {
+        (_c = this.logger) == null ? void 0 : _c.error("Child Components", {
+          message: "Failed to initialize child components",
+          error: (error == null ? void 0 : error.message) || "Unknown error"
+        });
+        throw error;
+      }
     }
     compare_with_current_item(item) {
       return item && item.name == this.current_item.name;
@@ -3695,12 +4848,23 @@
       return fields;
     }
     make_auto_serial_selection_btn(item) {
-      if (item.has_serial_no || item.has_batch_no) {
-        const label = item.has_serial_no ? __("Select Serial No") : __("Select Batch No");
-        this.$form_container.append(
-          `<div class="btn btn-sm btn-secondary auto-fetch-btn">${label}</div>`
-        );
-        this.$form_container.find(".serial_no-control").find("textarea").css("height", "6rem");
+      var _a5;
+      try {
+        if (item.has_serial_no || item.has_batch_no) {
+          const label = item.has_serial_no ? __("Select Serial No") : __("Select Batch No");
+          this.$form_container.append(
+            `<div class="btn btn-sm btn-secondary auto-fetch-btn">${label}</div>`
+          );
+          const serialControl = this.$form_container.find(".serial_no-control").find("textarea");
+          if (serialControl && serialControl.length > 0) {
+            this.safeCss(serialControl, "height", "6rem");
+          }
+        }
+      } catch (error) {
+        (_a5 = this.logger) == null ? void 0 : _a5.error("Serial Selection", {
+          message: "Failed to create auto serial selection button",
+          error: (error == null ? void 0 : error.message) || "Unknown error"
+        });
       }
     }
     bind_custom_control_change_event() {
@@ -3825,20 +4989,60 @@
       }
     }
     bind_events() {
-      this.bind_auto_serial_fetch_event();
-      this.bind_fields_to_numpad_fields();
-      this.$component.on("click", ".close-btn", () => {
-        this.events.close_item_details();
-      });
+      var _a5, _b;
+      try {
+        this.bind_auto_serial_fetch_event();
+        this.bind_fields_to_numpad_fields();
+        if (this.$component && this.$component.on) {
+          this.$component.on("click", ".close-btn", () => {
+            var _a6;
+            try {
+              this.events.close_item_details();
+            } catch (error) {
+              (_a6 = this.logger) == null ? void 0 : _a6.error("Event", {
+                message: "Failed to close item details",
+                error: (error == null ? void 0 : error.message) || "Unknown error"
+              });
+            }
+          });
+        }
+        (_a5 = this.logger) == null ? void 0 : _a5.info("Events", "All events bound successfully");
+      } catch (error) {
+        (_b = this.logger) == null ? void 0 : _b.error("Events", {
+          message: "Failed to bind events",
+          error: (error == null ? void 0 : error.message) || "Unknown error"
+        });
+      }
     }
     attach_shortcuts() {
-      this.wrapper.find(".close-btn").attr("title", "Esc");
-      frappe.ui.keys.on("escape", () => {
-        const item_details_visible = this.$component.is(":visible");
-        if (item_details_visible) {
-          this.events.close_item_details();
+      var _a5, _b, _c, _d;
+      try {
+        if (this.wrapper && this.wrapper.find) {
+          this.wrapper.find(".close-btn").attr("title", "Esc");
         }
-      });
+        if ((_b = (_a5 = frappe == null ? void 0 : frappe.ui) == null ? void 0 : _a5.keys) == null ? void 0 : _b.on) {
+          frappe.ui.keys.on("escape", () => {
+            var _a6, _b2;
+            try {
+              const item_details_visible = (_a6 = this.$component) == null ? void 0 : _a6.is(":visible");
+              if (item_details_visible) {
+                this.events.close_item_details();
+              }
+            } catch (error) {
+              (_b2 = this.logger) == null ? void 0 : _b2.error("Shortcut", {
+                message: "Failed to handle escape shortcut",
+                error: (error == null ? void 0 : error.message) || "Unknown error"
+              });
+            }
+          });
+        }
+        (_c = this.logger) == null ? void 0 : _c.info("Shortcuts", "Keyboard shortcuts attached successfully");
+      } catch (error) {
+        (_d = this.logger) == null ? void 0 : _d.error("Shortcuts", {
+          message: "Failed to attach shortcuts",
+          error: (error == null ? void 0 : error.message) || "Unknown error"
+        });
+      }
     }
     bind_fields_to_numpad_fields() {
       const me = this;
@@ -3868,56 +5072,447 @@
       });
     }
     toggle_component(show) {
-      show ? this.$component.css("display", "flex") : this.$component.css("display", "none");
+      var _a5, _b, _c;
+      try {
+        if (!this.$component) {
+          (_a5 = this.logger) == null ? void 0 : _a5.warn("Toggle", "Component not available for toggle operation");
+          return false;
+        }
+        const displayValue = show ? "flex" : "none";
+        const success = this.safeCss(this.$component, "display", displayValue);
+        if (success) {
+          (_b = this.logger) == null ? void 0 : _b.info("Toggle", `Component ${show ? "shown" : "hidden"} successfully`);
+        }
+        return success;
+      } catch (error) {
+        (_c = this.logger) == null ? void 0 : _c.error("Toggle", {
+          message: "Failed to toggle component visibility",
+          show,
+          error: (error == null ? void 0 : error.message) || "Unknown error"
+        });
+        return false;
+      }
     }
   };
 
   // ../posnext/posnext/public/js/pos_number_pad.js
   frappe.provide("posnext.PointOfSale");
-  posnext.PointOfSale.NumberPad = class {
+  var _a2;
+  posnext.PointOfSale.NumberPad = (_a2 = class {
     constructor({ wrapper, events, cols, keys, css_classes, fieldnames_map }) {
-      this.wrapper = wrapper;
-      this.events = events;
-      this.cols = cols;
-      this.keys = keys;
-      this.css_classes = css_classes || [];
-      this.fieldnames = fieldnames_map || {};
-      this.init_component();
+      try {
+        this.validate_constructor_params({ wrapper, events, cols, keys, css_classes, fieldnames_map });
+        this.wrapper = wrapper;
+        this.events = events;
+        this.cols = cols || this.constructor.CONSTANTS.DEFAULTS.COLS;
+        this.keys = keys || this.constructor.CONSTANTS.DEFAULTS.KEYS;
+        this.css_classes = css_classes || this.constructor.CONSTANTS.DEFAULTS.CSS_CLASSES;
+        this.fieldnames = fieldnames_map || this.constructor.CONSTANTS.DEFAULTS.FIELDNAMES;
+        this.is_disabled = false;
+        this.button_states = /* @__PURE__ */ new Map();
+        this.init_component();
+      } catch (error) {
+        console.error("NumberPad constructor error:", error);
+        frappe.show_alert({
+          message: __("Failed to initialize number pad"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
+    }
+    validate_constructor_params({ wrapper, events, cols, keys, css_classes, fieldnames_map }) {
+      if (!wrapper) {
+        throw new Error("NumberPad requires a wrapper element");
+      }
+      if (!wrapper.jquery && !wrapper.nodeType) {
+        throw new Error("Wrapper must be a jQuery object or DOM element");
+      }
+      if (!events) {
+        throw new Error("NumberPad requires an events object");
+      }
+      if (typeof events.numpad_event !== "function") {
+        throw new Error("Events object must have a numpad_event method");
+      }
+      if (keys && !Array.isArray(keys)) {
+        throw new Error("Keys must be an array");
+      }
+      if (keys) {
+        keys.forEach((row, i) => {
+          if (!Array.isArray(row)) {
+            throw new Error(`Keys row ${i} must be an array`);
+          }
+        });
+      }
+      if (cols && (typeof cols !== "number" || cols < 1)) {
+        throw new Error("Cols must be a positive number");
+      }
+      if (css_classes && !Array.isArray(css_classes)) {
+        throw new Error("CSS classes must be an array");
+      }
+      if (fieldnames_map && typeof fieldnames_map !== "object") {
+        throw new Error("Fieldnames map must be an object");
+      }
     }
     init_component() {
-      this.prepare_dom();
-      this.bind_events();
+      try {
+        this.prepare_dom();
+        this.bind_events();
+        this.setup_accessibility();
+      } catch (error) {
+        console.error("NumberPad initialization error:", error);
+        frappe.show_alert({
+          message: __("Number pad initialization failed"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
     }
     prepare_dom() {
-      const { cols, keys, css_classes, fieldnames } = this;
-      function get_keys() {
-        return keys.reduce((a, row, i) => {
-          return a + row.reduce((a2, number, j) => {
-            const class_to_append = css_classes && css_classes[i] ? css_classes[i][j] : "";
-            const fieldname = fieldnames && fieldnames[number] ? fieldnames[number] : typeof number === "string" ? frappe.scrub(number) : number;
-            return a2 + `<div class="numpad-btn ${class_to_append}" data-button-value="${fieldname}">${__(number)}</div>`;
-          }, "");
-        }, "");
+      try {
+        const container_html = this.generate_container_html();
+        this.wrapper.html(container_html);
+        this.$container = this.wrapper.find(this.constructor.CONSTANTS.SELECTORS.CONTAINER);
+        this.$buttons = this.wrapper.find(this.constructor.CONSTANTS.SELECTORS.BUTTON);
+        if (!this.$container.length) {
+          throw new Error("Failed to create number pad container");
+        }
+      } catch (error) {
+        console.error("DOM preparation error:", error);
+        frappe.show_alert({
+          message: __("Failed to create number pad interface"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
       }
-      this.wrapper.html(
-        `<div class="numpad-container">
-				${get_keys()}
-			</div>`
-      );
     }
-    bind_events() {
-      const me = this;
-      this.wrapper.on("click", ".numpad-btn", function() {
-        const $btn = $(this);
-        me.events.numpad_event($btn);
+    generate_container_html() {
+      const buttons_html = this.generate_buttons_html();
+      return `<div class="${this.constructor.CONSTANTS.CSS.CONTAINER}">${buttons_html}</div>`;
+    }
+    generate_buttons_html() {
+      return this.keys.reduce((html, row, row_index) => {
+        return html + row.reduce((row_html, key, col_index) => {
+          return row_html + this.generate_button_html(key, row_index, col_index);
+        }, "");
+      }, "");
+    }
+    generate_button_html(key, row_index, col_index) {
+      const button_data = this.prepare_button_data(key, row_index, col_index);
+      return `<div class="${button_data.classes}" 
+				data-button-value="${button_data.fieldname}"
+				role="${this.constructor.CONSTANTS.ARIA.ROLE_BUTTON}"
+				aria-label="${button_data.aria_label}"
+				tabindex="${button_data.tabindex}">
+					${button_data.display_text}
+				</div>`;
+    }
+    prepare_button_data(key, row_index, col_index) {
+      const extra_class = this.css_classes && this.css_classes[row_index] ? this.css_classes[row_index][col_index] || "" : "";
+      const fieldname = this.fieldnames && this.fieldnames[key] ? this.fieldnames[key] : typeof key === "string" ? frappe.scrub(key) : key;
+      const display_text = this.sanitize_html(__(key));
+      const is_empty = !key || key === "";
+      return {
+        classes: `${this.constructor.CONSTANTS.CSS.BUTTON} ${extra_class}`.trim(),
+        fieldname: this.sanitize_attribute(fieldname),
+        aria_label: `${this.constructor.CONSTANTS.ARIA.LABEL_PREFIX} ${key || "empty"}`,
+        display_text,
+        tabindex: is_empty ? "-1" : "0"
+      };
+    }
+    sanitize_html(text) {
+      if (typeof text !== "string")
+        return "";
+      return text.replace(/[<>&"']/g, (match) => {
+        const escape_map = {
+          "<": "&lt;",
+          ">": "&gt;",
+          "&": "&amp;",
+          '"': "&quot;",
+          "'": "&#x27;"
+        };
+        return escape_map[match];
       });
     }
-  };
+    sanitize_attribute(value) {
+      if (typeof value !== "string" && typeof value !== "number")
+        return "";
+      return String(value).replace(/[<>&"']/g, "");
+    }
+    bind_events() {
+      try {
+        const me = this;
+        this.wrapper.on(this.constructor.CONSTANTS.EVENTS.CLICK, this.constructor.CONSTANTS.SELECTORS.BUTTON, function(event) {
+          me.handle_button_click($(this), event);
+        });
+        this.wrapper.on(this.constructor.CONSTANTS.EVENTS.KEYDOWN, this.constructor.CONSTANTS.SELECTORS.BUTTON, function(event) {
+          me.handle_button_keydown($(this), event);
+        });
+        this.wrapper.on(this.constructor.CONSTANTS.EVENTS.FOCUS, this.constructor.CONSTANTS.SELECTORS.BUTTON, function(event) {
+          me.handle_button_focus($(this), event);
+        });
+        this.wrapper.on(this.constructor.CONSTANTS.EVENTS.BLUR, this.constructor.CONSTANTS.SELECTORS.BUTTON, function(event) {
+          me.handle_button_blur($(this), event);
+        });
+      } catch (error) {
+        console.error("Event binding error:", error);
+        frappe.show_alert({
+          message: __("Failed to setup number pad interactions"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
+    }
+    handle_button_click($button, event) {
+      try {
+        event.preventDefault();
+        if (this.is_button_disabled($button) || this.is_disabled) {
+          return;
+        }
+        this.add_button_feedback($button);
+        this.trigger_numpad_event($button);
+      } catch (error) {
+        console.error("Button click error:", error);
+        frappe.show_alert({
+          message: __("Button action failed"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
+    }
+    handle_button_keydown($button, event) {
+      try {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          this.handle_button_click($button, event);
+        } else if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+          event.preventDefault();
+          this.navigate_buttons($button, event.key);
+        }
+      } catch (error) {
+        console.error("Keyboard event error:", error);
+      }
+    }
+    handle_button_focus($button, event) {
+      try {
+        $button.addClass("focused");
+      } catch (error) {
+        console.error("Focus event error:", error);
+      }
+    }
+    handle_button_blur($button, event) {
+      try {
+        $button.removeClass("focused");
+      } catch (error) {
+        console.error("Blur event error:", error);
+      }
+    }
+    navigate_buttons($current_button, direction) {
+      try {
+        const $buttons = this.wrapper.find(this.constructor.CONSTANTS.SELECTORS.BUTTON + ':not([tabindex="-1"])');
+        const current_index = $buttons.index($current_button);
+        const total_buttons = $buttons.length;
+        if (current_index === -1)
+          return;
+        let next_index;
+        const cols = this.cols;
+        const rows = Math.ceil(total_buttons / cols);
+        const current_row = Math.floor(current_index / cols);
+        const current_col = current_index % cols;
+        switch (direction) {
+          case "ArrowLeft":
+            next_index = current_index > 0 ? current_index - 1 : total_buttons - 1;
+            break;
+          case "ArrowRight":
+            next_index = current_index < total_buttons - 1 ? current_index + 1 : 0;
+            break;
+          case "ArrowUp":
+            next_index = current_row > 0 ? current_index - cols : current_index + (rows - 1) * cols;
+            if (next_index >= total_buttons)
+              next_index = current_col;
+            break;
+          case "ArrowDown":
+            next_index = current_row < rows - 1 ? current_index + cols : current_col;
+            if (next_index >= total_buttons)
+              next_index = current_index;
+            break;
+          default:
+            return;
+        }
+        if (next_index >= 0 && next_index < total_buttons) {
+          $buttons.eq(next_index).focus();
+        }
+      } catch (error) {
+        console.error("Button navigation error:", error);
+      }
+    }
+    setup_accessibility() {
+      try {
+        this.$container.attr("role", "grid");
+        this.$container.attr("aria-label", __("Number pad"));
+        const $first_button = this.wrapper.find(this.constructor.CONSTANTS.SELECTORS.BUTTON + ':not([tabindex="-1"])').first();
+        if ($first_button.length) {
+          $first_button.attr("tabindex", "0");
+        }
+      } catch (error) {
+        console.error("Accessibility setup error:", error);
+      }
+    }
+    add_button_feedback($button) {
+      try {
+        $button.addClass(this.constructor.CONSTANTS.CSS.BUTTON_ACTIVE);
+        setTimeout(() => {
+          $button.removeClass(this.constructor.CONSTANTS.CSS.BUTTON_ACTIVE);
+        }, 150);
+        this.play_button_sound();
+      } catch (error) {
+        console.error("Button feedback error:", error);
+      }
+    }
+    play_button_sound() {
+      try {
+        if (frappe.utils && frappe.utils.play_sound) {
+          frappe.utils.play_sound("click");
+        }
+      } catch (error) {
+      }
+    }
+    trigger_numpad_event($button) {
+      try {
+        if (this.events && typeof this.events.numpad_event === "function") {
+          this.events.numpad_event($button);
+        }
+      } catch (error) {
+        console.error("Numpad event trigger error:", error);
+        frappe.show_alert({
+          message: __("Number pad action failed"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
+    }
+    is_button_disabled($button) {
+      return $button.hasClass(this.constructor.CONSTANTS.CSS.BUTTON_DISABLED) || $button.attr("aria-disabled") === "true";
+    }
+    disable_button(value) {
+      try {
+        const $button = this.wrapper.find(`[data-button-value="${this.sanitize_attribute(value)}"]`);
+        if ($button.length) {
+          $button.addClass(this.constructor.CONSTANTS.CSS.BUTTON_DISABLED);
+          $button.attr("aria-disabled", "true");
+          $button.attr("tabindex", "-1");
+          this.button_states.set(value, "disabled");
+        }
+      } catch (error) {
+        console.error("Button disable error:", error);
+      }
+    }
+    enable_button(value) {
+      try {
+        const $button = this.wrapper.find(`[data-button-value="${this.sanitize_attribute(value)}"]`);
+        if ($button.length) {
+          $button.removeClass(this.constructor.CONSTANTS.CSS.BUTTON_DISABLED);
+          $button.removeAttr("aria-disabled");
+          $button.attr("tabindex", "0");
+          this.button_states.delete(value);
+        }
+      } catch (error) {
+        console.error("Button enable error:", error);
+      }
+    }
+    disable_all() {
+      try {
+        this.is_disabled = true;
+        this.$buttons.addClass(this.constructor.CONSTANTS.CSS.BUTTON_DISABLED);
+        this.$buttons.attr("aria-disabled", "true");
+        this.$buttons.attr("tabindex", "-1");
+      } catch (error) {
+        console.error("Disable all error:", error);
+      }
+    }
+    enable_all() {
+      try {
+        this.is_disabled = false;
+        this.$buttons.removeClass(this.constructor.CONSTANTS.CSS.BUTTON_DISABLED);
+        this.$buttons.removeAttr("aria-disabled");
+        this.$buttons.attr("tabindex", "0");
+      } catch (error) {
+        console.error("Enable all error:", error);
+      }
+    }
+    set_loading_state(value, loading = true) {
+      try {
+        const $button = this.wrapper.find(`[data-button-value="${this.sanitize_attribute(value)}"]`);
+        if ($button.length) {
+          if (loading) {
+            $button.addClass(this.constructor.CONSTANTS.CSS.BUTTON_LOADING);
+            $button.attr("aria-busy", "true");
+          } else {
+            $button.removeClass(this.constructor.CONSTANTS.CSS.BUTTON_LOADING);
+            $button.removeAttr("aria-busy");
+          }
+        }
+      } catch (error) {
+        console.error("Loading state error:", error);
+      }
+    }
+    destroy() {
+      try {
+        if (this.wrapper) {
+          this.wrapper.off(this.constructor.CONSTANTS.EVENTS.CLICK, this.constructor.CONSTANTS.SELECTORS.BUTTON);
+          this.wrapper.off(this.constructor.CONSTANTS.EVENTS.KEYDOWN, this.constructor.CONSTANTS.SELECTORS.BUTTON);
+          this.wrapper.off(this.constructor.CONSTANTS.EVENTS.FOCUS, this.constructor.CONSTANTS.SELECTORS.BUTTON);
+          this.wrapper.off(this.constructor.CONSTANTS.EVENTS.BLUR, this.constructor.CONSTANTS.SELECTORS.BUTTON);
+        }
+        if (this.button_states) {
+          this.button_states.clear();
+        }
+        this.$container = null;
+        this.$buttons = null;
+        this.wrapper = null;
+        this.events = null;
+        this.keys = null;
+        this.css_classes = null;
+        this.fieldnames = null;
+        this.button_states = null;
+      } catch (error) {
+        console.error("Cleanup error:", error);
+      }
+    }
+  }, __publicField(_a2, "CONSTANTS", {
+    CSS: {
+      CONTAINER: "numpad-container",
+      BUTTON: "numpad-btn",
+      BUTTON_ACTIVE: "numpad-btn-active",
+      BUTTON_DISABLED: "numpad-btn-disabled",
+      BUTTON_LOADING: "numpad-btn-loading"
+    },
+    SELECTORS: {
+      BUTTON: ".numpad-btn",
+      CONTAINER: ".numpad-container"
+    },
+    ARIA: {
+      ROLE_BUTTON: "button",
+      LABEL_PREFIX: "Number pad button",
+      DISABLED: "disabled",
+      PRESSED: "aria-pressed"
+    },
+    DEFAULTS: {
+      COLS: 3,
+      KEYS: [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["", "0", ""]],
+      CSS_CLASSES: [],
+      FIELDNAMES: {}
+    },
+    INDICATORS: {
+      GREEN: "green",
+      RED: "red",
+      ORANGE: "orange",
+      BLUE: "blue"
+    },
+    EVENTS: {
+      CLICK: "click",
+      KEYDOWN: "keydown",
+      FOCUS: "focus",
+      BLUR: "blur"
+    }
+  }), _a2);
 
   // ../posnext/posnext/public/js/pos_payment.js
   frappe.provide("posnext.PointOfSale");
-  var _a2;
-  posnext.PointOfSale.Payment = (_a2 = class {
+  posnext.PointOfSale.Payment = class {
     constructor({ events, wrapper, settings }) {
       this.wrapper = wrapper;
       this.events = events;
@@ -3933,22 +5528,255 @@
         this.render_coupon_code_field();
       }
     }
-    debounce(func, wait) {
-      let timeout;
-      return function executedFunction(...args) {
-        const later = () => {
-          clearTimeout(timeout);
-          func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-      };
-    }
     init_component() {
       this.prepare_dom();
       this.initialize_numpad();
+      this._inject_payment_styles();
+      this._setup_performance_optimizations();
       this.bind_events();
       this.attach_shortcuts();
+    }
+    _inject_payment_styles() {
+      if (document.getElementById("posnext-payment-styles"))
+        return;
+      const style = document.createElement("style");
+      style.id = "posnext-payment-styles";
+      style.textContent = `
+			/* Enhanced POS Payment Styles */
+			
+			/* Shortcut button click feedback */
+			.shortcut-btn.shortcut-clicked {
+				transform: scale(0.95) !important;
+				transition: transform 0.1s ease !important;
+			}
+			
+			/* Success flash animation */
+			@keyframes success-flash {
+				0% { background-color: #28a745; color: white; }
+				50% { background-color: #20c997; color: white; }
+				100% { background-color: #28a745; color: white; }
+			}
+			
+			.success-flash {
+				animation: success-flash 0.6s ease-in-out !important;
+			}
+			
+			/* Shortcut flash animation */
+			@keyframes shortcut-flash {
+				0% { background-color: #007bff; color: white; }
+				50% { background-color: #0056b3; color: white; }
+				100% { background-color: #007bff; color: white; }
+			}
+			
+			.shortcut-flash {
+				animation: shortcut-flash 0.4s ease-in-out !important;
+			}
+			
+			/* Enhanced payment mode styling */
+			.mode-of-payment-control {
+				transition: all 0.2s ease !important;
+			}
+			
+			.mode-of-payment-control:focus {
+				box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25) !important;
+				border-color: #007bff !important;
+			}
+			
+			/* Cash shortcuts container */
+			.cash-shortcuts-container {
+				margin: 8px 0;
+				padding: 12px;
+				background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+				border: 1px solid #e9ecef;
+				border-radius: 8px;
+				box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);
+			}
+			
+			.cash-shortcuts-header {
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				margin-bottom: 8px;
+				font-size: 14px;
+				font-weight: 600;
+				color: #495057;
+			}
+			
+			.cash-shortcuts-header i {
+				margin-right: 6px;
+				color: #28a745;
+			}
+			
+			.cash-shortcuts-grid {
+				display: grid;
+				grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
+				gap: 6px;
+			}
+			
+			/* Enhanced shortcut button styling */
+			.shortcut-btn {
+				display: flex !important;
+				flex-direction: column !important;
+				align-items: center !important;
+				justify-content: center !important;
+				padding: 10px 8px !important;
+				background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%) !important;
+				border: 1px solid #dee2e6 !important;
+				border-radius: 8px !important;
+				cursor: pointer !important;
+				font-size: 13px !important;
+				font-weight: 600 !important;
+				text-align: center !important;
+				min-height: 50px !important;
+				transition: all 0.2s ease !important;
+				box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
+				user-select: none !important;
+				position: relative !important;
+				overflow: hidden !important;
+			}
+			
+			.shortcut-btn:hover {
+				background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%) !important;
+				transform: translateY(-2px) !important;
+				box-shadow: 0 3px 12px rgba(0,0,0,0.15) !important;
+				border-color: #adb5bd !important;
+			}
+			
+			.shortcut-btn:active {
+				transform: translateY(0) !important;
+				box-shadow: 0 1px 2px rgba(0,0,0,0.1) !important;
+			}
+			
+			.shortcut-btn:focus {
+				outline: 2px solid #007bff !important;
+				outline-offset: 2px !important;
+				background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%) !important;
+			}
+			
+			.shortcut-amount {
+				font-size: 14px !important;
+				font-weight: 700 !important;
+				color: #212529 !important;
+				line-height: 1.2 !important;
+			}
+			
+			.shortcut-currency {
+				font-size: 10px !important;
+				font-weight: 500 !important;
+				color: #6c757d !important;
+				margin-top: 2px !important;
+				text-transform: uppercase !important;
+			}
+			
+			/* Payment mode icons */
+			.payment-mode-icon {
+				margin-right: 8px;
+				font-size: 16px;
+				width: 20px;
+				text-align: center;
+				color: #495057;
+			}
+			
+			.payment-mode-header {
+				display: flex;
+				align-items: center;
+				justify-content: flex-start;
+				margin-bottom: 4px;
+			}
+			
+			.payment-mode-name {
+				font-size: 14px;
+				font-weight: 600;
+				color: #212529;
+				flex: 1;
+			}
+			
+			/* Enhanced payment mode styling */
+			.mode-of-payment {
+				padding: 12px !important;
+				border: 2px solid #e9ecef !important;
+				border-radius: 8px !important;
+				background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%) !important;
+				transition: all 0.2s ease !important;
+				cursor: pointer !important;
+				position: relative !important;
+			}
+			
+			.mode-of-payment:hover {
+				border-color: #007bff !important;
+				box-shadow: 0 2px 8px rgba(0, 123, 255, 0.1) !important;
+				transform: translateY(-1px) !important;
+			}
+			
+			.mode-of-payment.border-primary {
+				border-color: #007bff !important;
+				box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1) !important;
+				background: linear-gradient(135deg, #f8f9fa 0%, #e3f2fd 100%) !important;
+			}
+			
+			/* Enhanced form controls */
+			.payment-input-enhanced {
+				border-radius: 6px !important;
+				border: 2px solid #e9ecef !important;
+				padding: 8px 12px !important;
+				font-size: 14px !important;
+				transition: all 0.2s ease !important;
+			}
+			
+			.payment-input-enhanced:focus {
+				border-color: #007bff !important;
+				box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1) !important;
+				outline: none !important;
+			}
+			
+			.payment-input-enhanced.error {
+				border-color: #dc3545 !important;
+				box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.1) !important;
+			}
+			
+			/* Loading states */
+			.payment-loading {
+				position: relative !important;
+				pointer-events: none !important;
+				opacity: 0.6 !important;
+			}
+			
+			.payment-loading::after {
+				content: '';
+				position: absolute;
+				top: 50%;
+				left: 50%;
+				width: 20px;
+				height: 20px;
+				margin: -10px 0 0 -10px;
+				border: 2px solid #007bff;
+				border-top: 2px solid transparent;
+				border-radius: 50%;
+				animation: spin 1s linear infinite;
+			}
+			
+			@keyframes spin {
+				0% { transform: rotate(0deg); }
+				100% { transform: rotate(360deg); }
+			}
+			
+			/* Responsive design */
+			@media (max-width: 768px) {
+				.cash-shortcuts-grid {
+					grid-template-columns: repeat(3, 1fr) !important;
+				}
+				
+				.shortcut-btn {
+					min-height: 45px !important;
+					padding: 8px 6px !important;
+				}
+				
+				.shortcut-amount {
+					font-size: 13px !important;
+				}
+			}
+		`;
+      document.head.appendChild(style);
     }
     prepare_dom() {
       this.wrapper.append(
@@ -3982,8 +5810,8 @@
         df: {
           label: __("Coupon Code"),
           fieldtype: "Link",
-          options: posnext.PointOfSale.Payment.CONSTANTS.OPTIONS.COUPON_CODE,
-          fieldname: posnext.PointOfSale.Payment.CONSTANTS.FIELD_NAMES.COUPON_CODE,
+          options: "Coupon Code",
+          fieldname: "coupon_code",
           placeholder: __("Select a coupon")
         },
         parent: this.$component.find(".coupon-code"),
@@ -3995,22 +5823,22 @@
       const fields = [];
       if (this.custom_show_credit_sales) {
         fields.push({
-          fieldname: posnext.PointOfSale.Payment.CONSTANTS.FIELD_NAMES.CUSTOM_CREDIT_SALES,
+          fieldname: "custom_credit_sales",
           label: "Credit Sales",
           fieldtype: "Check"
         });
       }
       if (this.custom_show_sales_man) {
         fields.push({
-          fieldname: posnext.PointOfSale.Payment.CONSTANTS.FIELD_NAMES.SALES_PERSON,
+          fieldname: "sales_person",
           label: "Sales Man",
           fieldtype: "Link",
-          options: posnext.PointOfSale.Payment.CONSTANTS.OPTIONS.SALES_PERSON
+          options: "Sales Person"
         });
       }
       if (this.custom_show_additional_note) {
         fields.push({
-          fieldname: posnext.PointOfSale.Payment.CONSTANTS.FIELD_NAMES.REMARKS,
+          fieldname: "remarks",
           label: "Additional Note",
           fieldtype: "Small Text"
         });
@@ -4027,20 +5855,21 @@
         );
         let df_events = {
           onchange: function() {
-            if (this.df.fieldname === posnext.PointOfSale.Payment.CONSTANTS.FIELD_NAMES.SALES_PERSON) {
+            if (this.df.fieldname === "sales_person") {
               frm.clear_table("sales_team");
               cur_frm.add_child("sales_team", {
                 sales_person: this.get_value(),
                 allocated_percentage: 100
               });
             } else {
-              if (this.df.fieldname === posnext.PointOfSale.Payment.CONSTANTS.FIELD_NAMES.CUSTOM_CREDIT_SALES) {
+              if (this.df.fieldname === "custom_credit_sales") {
                 if (this.get_value()) {
                   frm.doc.payments.forEach((p) => {
                     const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
                     me[`${mode}_control`].set_value(0);
                   });
                 } else {
+                  console.log(me.current_payments);
                   me.current_payments.forEach((p) => {
                     if (p.mode_of_payment === me.default_payment) {
                       const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
@@ -4074,11 +5903,6 @@
     }
     initialize_numpad() {
       const me = this;
-      this.debounced_update_value = this.debounce((value) => {
-        if (this.selected_mode) {
-          this.selected_mode.set_value(value);
-        }
-      }, 150);
       this.number_pad = new posnext.PointOfSale.NumberPad({
         wrapper: this.$numpad,
         events: {
@@ -4101,7 +5925,7 @@
       highlight_numpad_btn($btn);
       this.numpad_value = button_value === "delete" ? this.numpad_value.slice(0, -1) : this.numpad_value + button_value;
       this.selected_mode.$input.get(0).focus();
-      this.debounced_update_value(this.numpad_value);
+      this.selected_mode.set_value(this.numpad_value);
       function highlight_numpad_btn($btn2) {
         $btn2.addClass("shadow-base-inner bg-selected");
         setTimeout(() => {
@@ -4110,13 +5934,6 @@
       }
     }
     bind_events() {
-      this.bind_payment_mode_events();
-      this.bind_form_events();
-      this.bind_shortcut_events();
-      this.bind_submit_events();
-      this.setup_listener_for_payments();
-    }
-    bind_payment_mode_events() {
       const me = this;
       this.$payment_modes.on("click", ".mode-of-payment", function(e) {
         const mode_clicked = $(this);
@@ -4125,8 +5942,11 @@
         const scrollLeft = mode_clicked.offset().left - me.$payment_modes.offset().left + me.$payment_modes.scrollLeft();
         me.$payment_modes.animate({ scrollLeft });
         const mode = mode_clicked.attr("data-mode");
-        me.hide_all_controls_and_shortcuts();
-        me.remove_highlight_from_all_modes();
+        $(`.mode-of-payment-control`).css("display", "none");
+        $(`.cash-shortcuts`).css("display", "none");
+        me.$payment_modes.find(`.pay-amount`).css("display", "inline");
+        me.$payment_modes.find(`.loyalty-amount-name`).css("display", "none");
+        $(".mode-of-payment").removeClass("border-primary");
         if (mode_clicked.hasClass("border-primary")) {
           mode_clicked.removeClass("border-primary");
           me.selected_mode = "";
@@ -4141,29 +5961,17 @@
           me.auto_set_remaining_amount();
         }
       });
-    }
-    hide_all_controls_and_shortcuts() {
-      $(`.mode-of-payment-control`).css("display", "none");
-      $(`.cash-shortcuts`).css("display", "none");
-      this.$payment_modes.find(`.pay-amount`).css("display", "inline");
-      this.$payment_modes.find(`.loyalty-amount-name`).css("display", "none");
-    }
-    remove_highlight_from_all_modes() {
-      $(".mode-of-payment").removeClass("border-primary");
-    }
-    bind_form_events() {
-      const me = this;
-      frappe.ui.form.on(posnext.PointOfSale.Payment.CONSTANTS.DOCTYPE.POS_INVOICE, posnext.PointOfSale.Payment.CONSTANTS.EVENTS.CONTACT_MOBILE, (frm) => {
-        var _a3;
+      frappe.ui.form.on("POS Invoice", "contact_mobile", (frm) => {
+        var _a5;
         const contact = frm.doc.contact_mobile;
-        const request_button = $((_a3 = this.request_for_payment_field) == null ? void 0 : _a3.$input[0]);
+        const request_button = $((_a5 = this.request_for_payment_field) == null ? void 0 : _a5.$input[0]);
         if (contact) {
           request_button.removeClass("btn-default").addClass("btn-primary");
         } else {
           request_button.removeClass("btn-primary").addClass("btn-default");
         }
       });
-      frappe.ui.form.on(posnext.PointOfSale.Payment.CONSTANTS.DOCTYPE.POS_INVOICE, posnext.PointOfSale.Payment.CONSTANTS.EVENTS.COUPON_CODE, (frm) => {
+      frappe.ui.form.on("POS Invoice", "coupon_code", (frm) => {
         if (frm.doc.coupon_code && !frm.applying_pos_coupon_code) {
           if (!frm.doc.ignore_pricing_rule) {
             frm.applying_pos_coupon_code = true;
@@ -4184,33 +5992,36 @@
           }
         }
       });
-      frappe.ui.form.on(posnext.PointOfSale.Payment.CONSTANTS.DOCTYPE.POS_INVOICE, posnext.PointOfSale.Payment.CONSTANTS.EVENTS.PAID_AMOUNT, (frm) => {
-        this.update_totals_section(frm.doc);
-        const is_cash_shortcuts_invisible = !this.$payment_modes.find(".cash-shortcuts").is(":visible");
-        this.attach_cash_shortcuts(frm.doc);
-        !is_cash_shortcuts_invisible && this.$payment_modes.find(".cash-shortcuts").css("display", "grid");
-        this.render_payment_mode_dom();
-      });
-      frappe.ui.form.on(posnext.PointOfSale.Payment.CONSTANTS.DOCTYPE.POS_INVOICE, posnext.PointOfSale.Payment.CONSTANTS.EVENTS.LOYALTY_AMOUNT, (frm) => {
-        const formatted_currency = format_currency(frm.doc.loyalty_amount, frm.doc.currency);
-        this.$payment_modes.find(`.loyalty-amount-amount`).html(formatted_currency);
-      });
-      frappe.ui.form.on(posnext.PointOfSale.Payment.CONSTANTS.DOCTYPE.SALES_INVOICE_PAYMENT, posnext.PointOfSale.Payment.CONSTANTS.EVENTS.AMOUNT, (frm, cdt, cdn) => {
-        const default_mop = locals[cdt][cdn];
-        const mode = default_mop.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-        if (this[`${mode}_control`] && this[`${mode}_control`].get_value() != default_mop.amount) {
-          this[`${mode}_control`].set_value(default_mop.amount);
+      this.setup_listener_for_payments();
+      this.$payment_modes.on("click", ".shortcut-btn", function() {
+        try {
+          const value = $(this).attr("data-value");
+          if (!value || isNaN(value)) {
+            frappe.show_alert({
+              message: __("Invalid shortcut value"),
+              indicator: "red"
+            });
+            return;
+          }
+          $(this).addClass("shortcut-clicked");
+          setTimeout(() => {
+            $(this).removeClass("shortcut-clicked");
+          }, 150);
+          me._handleShortcutSelection(value);
+        } catch (error) {
+          console.error("Error applying cash shortcut:", error);
+          frappe.show_alert({
+            message: __("Error applying cash shortcut"),
+            indicator: "red"
+          });
         }
       });
-    }
-    bind_shortcut_events() {
-      const me = this;
-      this.$payment_modes.on("click", ".shortcut", function() {
-        const value = $(this).attr("data-value");
-        me.selected_mode.set_value(value);
+      this.$payment_modes.on("keydown", ".shortcut-btn", function(e) {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          $(this).click();
+        }
       });
-    }
-    bind_submit_events() {
       this.$component.on("click", ".submit-order-btn", () => {
         const doc = this.events.get_frm().doc;
         let paid_amount = doc.paid_amount;
@@ -4227,32 +6038,105 @@
         }
         this.events.submit_invoice();
       });
+      frappe.ui.form.on("POS Invoice", "paid_amount", (frm) => {
+        this.update_totals_section(frm.doc);
+        const is_cash_shortcuts_invisible = !this.$payment_modes.find(".cash-shortcuts").is(":visible");
+        this.attach_cash_shortcuts(frm.doc);
+        !is_cash_shortcuts_invisible && this.$payment_modes.find(".cash-shortcuts").css("display", "grid");
+        this.render_payment_mode_dom();
+      });
+      frappe.ui.form.on("POS Invoice", "loyalty_amount", (frm) => {
+        const formatted_currency = format_currency(frm.doc.loyalty_amount, frm.doc.currency);
+        this.$payment_modes.find(`.loyalty-amount-amount`).html(formatted_currency);
+      });
+      frappe.ui.form.on("Sales Invoice Payment", "amount", (frm, cdt, cdn) => {
+        const default_mop = locals[cdt][cdn];
+        const mode = default_mop.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+        if (this[`${mode}_control`] && this[`${mode}_control`].get_value() != default_mop.amount) {
+          this[`${mode}_control`].set_value(default_mop.amount);
+        }
+      });
+    }
+    _handleShortcutSelection(value) {
+      try {
+        if (this.selected_mode && typeof this.selected_mode.set_value === "function") {
+          this.selected_mode.set_value(value);
+          this._addShortcutFeedback(this.selected_mode.$input);
+          return;
+        }
+        const activePaymentMode = this.$payment_modes.find(".mode-of-payment.border-primary");
+        if (activePaymentMode.length) {
+          const mode = activePaymentMode.attr("data-mode");
+          const control = this[`${mode}_control`];
+          if (control && typeof control.set_value === "function") {
+            control.set_value(value);
+            this._addShortcutFeedback(control.$input);
+            return;
+          }
+        }
+        const cashMode = this.$payment_modes.find('[data-payment-type="Cash"], [data-mode*="cash"]').first();
+        if (cashMode.length) {
+          cashMode.click();
+          setTimeout(() => {
+            if (this.selected_mode && typeof this.selected_mode.set_value === "function") {
+              this.selected_mode.set_value(value);
+              this._addShortcutFeedback(this.selected_mode.$input);
+            }
+          }, 100);
+          return;
+        }
+        const firstMode = this.$payment_modes.find(".mode-of-payment").first();
+        if (firstMode.length) {
+          firstMode.click();
+          setTimeout(() => {
+            if (this.selected_mode && typeof this.selected_mode.set_value === "function") {
+              this.selected_mode.set_value(value);
+              this._addShortcutFeedback(this.selected_mode.$input);
+            }
+          }, 100);
+          return;
+        }
+        frappe.show_alert({
+          message: __("No payment mode available for cash shortcut"),
+          indicator: "orange"
+        });
+      } catch (error) {
+        console.error("Error in shortcut selection:", error);
+        frappe.show_alert({
+          message: __("Error applying shortcut value"),
+          indicator: "red"
+        });
+      }
+    }
+    _addShortcutFeedback($input) {
+      if ($input && $input.length) {
+        $input.addClass("shortcut-flash");
+        setTimeout(() => {
+          $input.removeClass("shortcut-flash");
+        }, 500);
+      }
     }
     setup_listener_for_payments() {
       frappe.realtime.on("process_phone_payment", (data) => {
-        try {
-          const doc = this.events.get_frm().doc;
-          const { response, amount, success, failure_message } = data;
-          let message, title;
-          if (success) {
-            title = __("Payment Received");
-            const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
-            if (amount >= grand_total) {
-              frappe.dom.unfreeze();
-              message = __("Payment of {0} received successfully.", [format_currency(amount, doc.currency, 0)]);
-              this.events.submit_invoice();
-              cur_frm.reload_doc();
-            } else {
-              message = __("Payment of {0} received successfully. Waiting for other requests to complete...", [format_currency(amount, doc.currency, 0)]);
-            }
-          } else if (failure_message) {
-            message = failure_message;
-            title = __("Payment Failed");
+        const doc = this.events.get_frm().doc;
+        const { response, amount, success, failure_message } = data;
+        let message, title;
+        if (success) {
+          title = __("Payment Received");
+          const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
+          if (amount >= grand_total) {
+            frappe.dom.unfreeze();
+            message = __("Payment of {0} received successfully.", [format_currency(amount, doc.currency, 0)]);
+            this.events.submit_invoice();
+            cur_frm.reload_doc();
+          } else {
+            message = __("Payment of {0} received successfully. Waiting for other requests to complete...", [format_currency(amount, doc.currency, 0)]);
           }
-          frappe.msgprint({ "message": message, "title": title });
-        } catch (error) {
-          frappe.show_alert({ message: __("Error processing phone payment: {0}", [error.message]), indicator: "red" });
+        } else if (failure_message) {
+          message = failure_message;
+          title = __("Payment Failed");
         }
+        frappe.msgprint({ "message": message, "title": title });
       });
     }
     auto_set_remaining_amount() {
@@ -4352,7 +6236,10 @@
         return `
 					<div class="payment-mode-wrapper">
 						<div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
-							${p.mode_of_payment}
+							<div class="payment-mode-header">
+								<i class="${this._get_payment_icon(payment_type)} payment-mode-icon"></i>
+								<span class="payment-mode-name">${p.mode_of_payment}</span>
+							</div>
 							<div class="${mode}-amount pay-amount">${amount}</div>
 							<div class="${mode} mode-of-payment-control"></div>
 						</div>
@@ -4370,16 +6257,41 @@
             placeholder: __("Enter {0} amount.", [p.mode_of_payment]),
             onchange: function() {
               try {
+                console.log(p.doctype);
+                console.log(p.name);
                 const current_value = frappe.model.get_value(p.doctype, p.name, "amount");
+                if (isNaN(this.value) || this.value < 0) {
+                  frappe.show_alert({
+                    message: __("Please enter a valid positive amount"),
+                    indicator: "red"
+                  });
+                  this.set_value(current_value || 0);
+                  return;
+                }
                 if (current_value != this.value) {
-                  frappe.model.set_value(p.doctype, p.name, "amount", flt(this.value)).then(() => me.update_totals_section()).catch((error) => {
-                    frappe.show_alert({ message: __("Error updating payment amount: {0}", [error.message]), indicator: "red" });
+                  frappe.model.set_value(p.doctype, p.name, "amount", flt(this.value)).then(() => {
+                    me.update_totals_section();
+                    this.$input.addClass("success-flash");
+                    setTimeout(() => {
+                      this.$input.removeClass("success-flash");
+                    }, 300);
+                  }).catch((error) => {
+                    console.error("Error updating payment amount:", error);
+                    frappe.show_alert({
+                      message: __("Error updating payment amount: {0}", [error.message]),
+                      indicator: "red"
+                    });
+                    this.set_value(current_value || 0);
                   });
                   const formatted_currency = format_currency(this.value, currency);
                   me.$payment_modes.find(`.${mode}-amount`).html(formatted_currency);
                 }
               } catch (error) {
-                frappe.show_alert({ message: __("Error processing payment change: {0}", [error.message]), indicator: "red" });
+                console.error("Error in payment control onchange:", error);
+                frappe.show_alert({
+                  message: __("An error occurred while processing payment"),
+                  indicator: "red"
+                });
               }
             }
           },
@@ -4409,10 +6321,63 @@
       const currency = doc.currency;
       const shortcuts = this.get_cash_shortcuts(flt(grand_total));
       this.$payment_modes.find(".cash-shortcuts").remove();
+      if (shortcuts.length === 0)
+        return;
       let shortcuts_html = shortcuts.map((s) => {
-        return `<div class="shortcut" data-value="${s}">${format_currency(s, currency, 0)}</div>`;
+        const formattedAmount = format_currency(s, currency, 0);
+        return `<button class="shortcut-btn" 
+				data-value="${s}" 
+				role="button" 
+				aria-label="Quick cash amount selection ${formattedAmount}"
+				tabindex="0"
+				style="
+					display: inline-block; 
+					margin: 2px; 
+					padding: 8px 12px; 
+					background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
+					border: 1px solid #dee2e6; 
+					border-radius: 6px; 
+					cursor: pointer; 
+					font-size: 12px; 
+					font-weight: 600; 
+					text-align: center; 
+					min-width: 60px; 
+					transition: all 0.2s ease;
+					box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+					user-select: none;
+				"
+				onmouseover="this.style.background='linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%)'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.15)';"
+				onmouseout="this.style.background='linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)'; this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.1)';"
+				onmousedown="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 2px rgba(0,0,0,0.1)';"
+				onmouseup="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.15)';"
+				onfocus="this.style.outline='2px solid #007bff'; this.style.outlineOffset='2px';"
+				onblur="this.style.outline='none';">${formattedAmount}</button>`;
       }).join("");
-      this.$payment_modes.find('[data-payment-type="Cash"]').find(".mode-of-payment-control").after(`<div class="cash-shortcuts">${shortcuts_html}</div>`);
+      const shortcutsContainer = `<div class="cash-shortcuts" style="
+			display: grid; 
+			grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); 
+			gap: 4px; 
+			margin-top: 8px; 
+			padding: 8px; 
+			background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%); 
+			border: 1px solid #e9ecef; 
+			border-radius: 8px;
+			box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);">${shortcuts_html}</div>`;
+      let cashPaymentMode = this.$payment_modes.find('[data-payment-type="Cash"]');
+      if (!cashPaymentMode.length) {
+        cashPaymentMode = this.$payment_modes.find('[data-mode*="cash"]');
+      }
+      if (!cashPaymentMode.length) {
+        cashPaymentMode = this.$payment_modes.find(".mode-of-payment").filter(function() {
+          return $(this).text().toLowerCase().includes("cash");
+        });
+      }
+      if (!cashPaymentMode.length) {
+        cashPaymentMode = this.$payment_modes.find(".mode-of-payment").first();
+      }
+      if (cashPaymentMode.length) {
+        cashPaymentMode.find(".mode-of-payment-control").after(shortcutsContainer);
+      }
     }
     get_cash_shortcuts(grand_total) {
       let steps = [1, 5, 10];
@@ -4449,7 +6414,10 @@
       this.$payment_modes.append(
         `<div class="payment-mode-wrapper">
 				<div class="mode-of-payment loyalty-card" data-mode="loyalty-amount" data-payment-type="loyalty-amount">
-					Redeem Loyalty Points
+					<div class="payment-mode-header">
+						<i class="${this._get_payment_icon("loyalty-amount")} payment-mode-icon"></i>
+						<span class="payment-mode-name">Redeem Loyalty Points</span>
+					</div>
 					<div class="loyalty-amount-amount pay-amount">${amount}</div>
 					<div class="loyalty-amount-name">${loyalty_program}</div>
 					<div class="loyalty-amount mode-of-payment-control"></div>
@@ -4464,24 +6432,20 @@
           options: "company:currency",
           read_only,
           onchange: async function() {
-            try {
-              if (!loyalty_points)
-                return;
-              if (this.value > max_redeemable_amount) {
-                frappe.show_alert({
-                  message: __("You cannot redeem more than {0}.", [format_currency(max_redeemable_amount)]),
-                  indicator: "red"
-                });
-                frappe.utils.play_sound("submit");
-                me["loyalty-amount_control"].set_value(0);
-                return;
-              }
-              const redeem_loyalty_points = this.value > 0 ? 1 : 0;
-              await frappe.model.set_value(doc.doctype, doc.name, "redeem_loyalty_points", redeem_loyalty_points);
-              await frappe.model.set_value(doc.doctype, doc.name, "loyalty_points", parseInt(this.value / conversion_factor));
-            } catch (error) {
-              frappe.show_alert({ message: __("Error redeeming loyalty points: {0}", [error.message]), indicator: "red" });
+            if (!loyalty_points)
+              return;
+            if (this.value > max_redeemable_amount) {
+              frappe.show_alert({
+                message: __("You cannot redeem more than {0}.", [format_currency(max_redeemable_amount)]),
+                indicator: "red"
+              });
+              frappe.utils.play_sound("submit");
+              me["loyalty-amount_control"].set_value(0);
+              return;
             }
+            const redeem_loyalty_points = this.value > 0 ? 1 : 0;
+            await frappe.model.set_value(doc.doctype, doc.name, "redeem_loyalty_points", redeem_loyalty_points);
+            frappe.model.set_value(doc.doctype, doc.name, "loyalty_points", parseInt(this.value / conversion_factor));
           },
           description
         },
@@ -4502,9 +6466,12 @@
     update_totals_section(doc) {
       if (!doc)
         doc = this.events.get_frm().doc;
-      let branch_value = $('.input-with-feedback[data-fieldname="' + posnext.PointOfSale.Payment.CONSTANTS.FIELD_NAMES.BRANCH + '"]').val();
-      frappe.model.set_value(cur_frm.doctype, cur_frm.docname, posnext.PointOfSale.Payment.CONSTANTS.FIELD_NAMES.BRANCH, branch_value);
-      const paid_amount = cur_frm.doc.custom_credit_sales ? 0 : doc.paid_amount;
+      let branch_value = $('.input-with-feedback[data-fieldname="branch"]').val();
+      frappe.model.set_value(cur_frm.doctype, cur_frm.docname, "branch", branch_value);
+      const paid_amount = doc.paid_amount;
+      if (cur_frm.doc.custom_credit_sales) {
+        const paid_amount2 = 0;
+      }
       const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
       const remaining = grand_total - doc.paid_amount;
       const change = doc.change_amount || remaining <= 0 ? -1 * remaining : void 0;
@@ -4527,186 +6494,513 @@
 			</div>`
       );
     }
+    _setup_performance_optimizations() {
+      this._debounce = (func, wait) => {
+        let timeout;
+        return function executedFunction(...args) {
+          const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+          };
+          clearTimeout(timeout);
+          timeout = setTimeout(later, wait);
+        };
+      };
+      this._cache_dom_elements();
+      this._optimize_event_delegation();
+      this._setup_loading_states();
+    }
+    _cache_dom_elements() {
+      this._cached_elements = {
+        payment_modes: this.$payment_modes,
+        payment_container: this.$payment_modes.closest(".payment-container"),
+        cash_shortcuts: null,
+        mode_controls: null
+      };
+      this._update_dom_cache = () => {
+        this._cached_elements.cash_shortcuts = this.$payment_modes.find(".cash-shortcuts");
+        this._cached_elements.mode_controls = this.$payment_modes.find(".mode-of-payment-control");
+      };
+    }
+    _optimize_event_delegation() {
+      this.$payment_modes.off("input.payment_optimized");
+      this.$payment_modes.on(
+        "input.payment_optimized",
+        ".mode-of-payment-control input",
+        this._debounce((e) => {
+          const $input = $(e.target);
+          const fieldname = $input.attr("data-fieldname");
+          if (fieldname) {
+            this._handle_payment_input_optimized(fieldname, $input.val());
+          }
+        }, 300)
+      );
+    }
+    _handle_payment_input_optimized(fieldname, value) {
+      try {
+        const numValue = flt(value);
+        if (isNaN(numValue)) {
+          frappe.show_alert({
+            message: __("Invalid amount entered"),
+            indicator: "red"
+          });
+          return;
+        }
+        this._batch_dom_updates(() => {
+          this.update_totals_section(this.events.get_frm().doc);
+        });
+      } catch (error) {
+        console.error("Error in optimized payment input handling:", error);
+      }
+    }
+    _batch_dom_updates(callback) {
+      if (window.requestAnimationFrame) {
+        requestAnimationFrame(() => {
+          callback();
+        });
+      } else {
+        callback();
+      }
+    }
+    _setup_loading_states() {
+      this._loading_states = /* @__PURE__ */ new Map();
+      this._set_loading_state = (element, loading) => {
+        const $element = $(element);
+        if (loading) {
+          $element.addClass("payment-loading");
+          this._loading_states.set(element, true);
+        } else {
+          $element.removeClass("payment-loading");
+          this._loading_states.delete(element);
+        }
+      };
+      this._is_loading = (element) => {
+        return this._loading_states.has(element);
+      };
+    }
+    _get_payment_icon(payment_type) {
+      const iconMap = {
+        "Cash": "fa fa-money-bill-wave",
+        "Card": "fa fa-credit-card",
+        "Credit Card": "fa fa-credit-card",
+        "Debit Card": "fa fa-credit-card",
+        "Bank Transfer": "fa fa-university",
+        "Cheque": "fa fa-money-check",
+        "Digital Wallet": "fa fa-mobile-alt",
+        "Mobile Money": "fa fa-mobile-alt",
+        "loyalty-amount": "fa fa-gift",
+        "UPI": "fa fa-qrcode",
+        "PayPal": "fa fa-paypal",
+        "Apple Pay": "fa fa-apple-pay",
+        "Google Pay": "fa fa-google-pay",
+        "Samsung Pay": "fa fa-samsung-pay"
+      };
+      return iconMap[payment_type] || "fa fa-money-bill";
+    }
     toggle_component(show) {
       show ? this.$component.css("display", "flex") : this.$component.css("display", "none");
     }
-  }, __publicField(_a2, "CONSTANTS", {
-    FIELD_NAMES: {
-      CUSTOM_CREDIT_SALES: "custom_credit_sales",
-      SALES_PERSON: "sales_person",
-      REMARKS: "remarks",
-      COUPON_CODE: "coupon_code",
-      BRANCH: "branch"
-    },
-    DOCTYPE: {
-      POS_INVOICE: "POS Invoice",
-      SALES_INVOICE_PAYMENT: "Sales Invoice Payment"
-    },
-    OPTIONS: {
-      SALES_PERSON: "Sales Person",
-      COUPON_CODE: "Coupon Code"
-    },
-    EVENTS: {
-      CONTACT_MOBILE: "contact_mobile",
-      COUPON_CODE: "coupon_code",
-      PAID_AMOUNT: "paid_amount",
-      LOYALTY_AMOUNT: "loyalty_amount",
-      AMOUNT: "amount"
-    }
-  }), _a2);
+  };
 
   // ../posnext/posnext/public/js/pos_past_order_list.js
   frappe.provide("posnext.PointOfSale");
-  var invoicess = [];
-  posnext.PointOfSale.PastOrderList = class {
+  var _a3;
+  posnext.PointOfSale.PastOrderList = (_a3 = class {
     constructor({ wrapper, events, settings }) {
-      this.wrapper = wrapper;
-      this.events = events;
-      this.pos_profile = settings.name;
-      this.custom_filter_order_list_by_profile = settings.custom_filter_order_list_by_profile;
-      this.init_component();
+      try {
+        this.wrapper = wrapper;
+        this.events = events;
+        this.pos_profile = settings.name;
+        this.custom_filter_order_list_by_profile = settings.custom_filter_order_list_by_profile;
+        this.invoices = [];
+        this.last_search = null;
+        this.init_component();
+      } catch (error) {
+        console.error("PastOrderList constructor error:", error);
+        frappe.show_alert({
+          message: __("Failed to initialize order list component"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
     }
     init_component() {
-      this.prepare_dom();
-      this.make_filter_section();
-      this.bind_events();
+      try {
+        this.prepare_dom();
+        this.make_filter_section();
+        this.bind_events();
+      } catch (error) {
+        console.error("Component initialization error:", error);
+        frappe.show_alert({
+          message: __("Order list component initialization failed"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
     }
     prepare_dom() {
-      this.wrapper.append(
-        `<section class="past-order-list">
-				<div class="filter-section">
-					<div class="label back" style="font-size: 13px ">
-						<a>
-							<svg class="es-line" style="width: 13px;height: 13px">
-								<use class="" href="#es-line-left-chevron"></use></svg> Back
-						</a>
+      try {
+        this.wrapper.append(
+          `<section class="past-order-list">
+					<div class="filter-section">
+						<div class="label back" style="font-size: 13px ">
+							<a>
+								<svg class="es-line" style="width: 13px;height: 13px">
+									<use class="" href="#es-line-left-chevron"></use></svg> Back
+							</a>
+						</div>
+						<br>
+						<div class="label">${__("Recent Orders")}</div>
+						<div class="search-field"></div>
+						<div class="status-field"></div>
 					</div>
-					<br>
-					<div class="label">${__("Recent Orders")}</div>
-					<div class="search-field"></div>
-					<div class="status-field"></div>
-				</div>
-				<div class="invoices-container"></div>
-			</section>`
-      );
-      this.$component = this.wrapper.find(".past-order-list");
-      this.$invoices_container = this.$component.find(".invoices-container");
+					<div class="invoices-container"></div>
+				</section>`
+        );
+        this.$component = this.wrapper.find(".past-order-list");
+        this.$invoices_container = this.$component.find(".invoices-container");
+        if (!this.$component.length || !this.$invoices_container.length) {
+          throw new Error("Required DOM elements not found");
+        }
+      } catch (error) {
+        console.error("DOM preparation error:", error);
+        frappe.show_alert({
+          message: __("Failed to prepare order list interface"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
     }
     bind_events() {
-      this.search_field.$input.on("input", (e) => {
-        clearTimeout(this.last_search);
-        this.last_search = setTimeout(() => {
-          const search_term = e.target.value;
-          this.refresh_list(search_term, this.status_field.get_value());
-        }, 300);
-      });
-      const me = this;
-      this.$invoices_container.on("click", ".invoice-wrapper", function() {
-        const invoice_name = unescape($(this).attr("data-invoice-name"));
-        me.events.open_invoice_data(invoice_name);
-      });
-      this.$component.on("click", ".back", function() {
-        me.events.previous_screen();
-      });
+      try {
+        this.search_field.$input.on("input", (e) => {
+          clearTimeout(this.last_search);
+          this.last_search = setTimeout(() => {
+            const search_term = e.target.value;
+            this.refresh_list(search_term, this.status_field.get_value());
+          }, this.constructor.CONSTANTS.SEARCH.DEBOUNCE_DELAY);
+        });
+        const me = this;
+        this.$invoices_container.on("click", this.constructor.CONSTANTS.SELECTORS.INVOICE_WRAPPER, function() {
+          try {
+            const invoice_name = unescape($(this).attr("data-invoice-name"));
+            if (invoice_name && me.events.open_invoice_data) {
+              me.events.open_invoice_data(invoice_name);
+            }
+          } catch (error) {
+            console.error("Invoice click error:", error);
+            frappe.show_alert({
+              message: __("Failed to open invoice"),
+              indicator: me.constructor.CONSTANTS.INDICATORS.RED
+            });
+          }
+        });
+        this.$component.on("click", this.constructor.CONSTANTS.SELECTORS.BACK_BUTTON, function() {
+          try {
+            if (me.events.previous_screen) {
+              me.events.previous_screen();
+            }
+          } catch (error) {
+            console.error("Back button error:", error);
+            frappe.show_alert({
+              message: __("Navigation failed"),
+              indicator: me.constructor.CONSTANTS.INDICATORS.RED
+            });
+          }
+        });
+      } catch (error) {
+        console.error("Event binding error:", error);
+        frappe.show_alert({
+          message: __("Failed to setup event listeners"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
     }
     make_filter_section() {
-      const me = this;
-      this.search_field = frappe.ui.form.make_control({
-        df: {
-          label: __("Search"),
-          fieldtype: "Data",
-          placeholder: __("Search by invoice id or customer name")
-        },
-        parent: this.$component.find(".search-field"),
-        render_input: true
-      });
-      this.status_field = frappe.ui.form.make_control({
-        df: {
-          label: __("Invoice Status"),
-          fieldtype: "Select",
-          options: `Draft
-Paid
-Unpaid
-Return`,
-          placeholder: __("Filter by invoice status"),
-          onchange: function() {
-            if (me.$component.is(":visible"))
-              me.refresh_list();
-          }
-        },
-        parent: this.$component.find(".status-field"),
-        render_input: true
-      });
-      this.search_field.toggle_label(false);
-      this.status_field.toggle_label(false);
-      this.status_field.set_value("Draft");
+      try {
+        const me = this;
+        this.search_field = frappe.ui.form.make_control({
+          df: {
+            label: __("Search"),
+            fieldtype: "Data",
+            placeholder: __(this.constructor.CONSTANTS.SEARCH.PLACEHOLDER)
+          },
+          parent: this.$component.find(".search-field"),
+          render_input: true
+        });
+        this.status_field = frappe.ui.form.make_control({
+          df: {
+            label: __("Invoice Status"),
+            fieldtype: "Select",
+            options: this.constructor.CONSTANTS.STATUS.OPTIONS,
+            placeholder: __("Filter by invoice status"),
+            onchange: function() {
+              try {
+                if (me.$component.is(":visible"))
+                  me.refresh_list();
+              } catch (error) {
+                console.error("Status change error:", error);
+                frappe.show_alert({
+                  message: __("Filter update failed"),
+                  indicator: me.constructor.CONSTANTS.INDICATORS.RED
+                });
+              }
+            }
+          },
+          parent: this.$component.find(".status-field"),
+          render_input: true
+        });
+        this.search_field.toggle_label(false);
+        this.status_field.toggle_label(false);
+        this.status_field.set_value(this.constructor.CONSTANTS.STATUS.DEFAULT);
+      } catch (error) {
+        console.error("Filter section creation error:", error);
+        frappe.show_alert({
+          message: __("Failed to create search filters"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
     }
     refresh_list() {
-      frappe.dom.freeze();
-      this.events.reset_summary();
-      const search_term = this.search_field.get_value();
-      const status = this.status_field.get_value();
-      const pos_profile = this.pos_profile;
-      this.$invoices_container.html("");
-      let filter = { search_term, status };
-      if (this.custom_filter_order_list_by_profile) {
-        filter = { search_term, status, pos_profile };
-      }
-      return frappe.call({
-        method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
-        freeze: true,
-        args: filter,
-        callback: (response) => {
-          frappe.dom.unfreeze();
-          invoicess = response.message;
-          response.message.forEach((invoice) => {
-            const invoice_html = this.get_invoice_html(invoice);
-            this.$invoices_container.append(invoice_html);
-          });
+      try {
+        frappe.dom.freeze();
+        this.events.reset_summary();
+        const search_term = this.search_field.get_value();
+        const status = this.status_field.get_value();
+        const pos_profile = this.pos_profile;
+        this.$invoices_container.html("");
+        let filter = { search_term, status };
+        if (this.custom_filter_order_list_by_profile) {
+          filter = { search_term, status, pos_profile };
         }
-      });
+        return frappe.call({
+          method: this.constructor.CONSTANTS.API.ENDPOINT,
+          freeze: true,
+          args: filter,
+          callback: (response) => {
+            try {
+              frappe.dom.unfreeze();
+              if (response.message && Array.isArray(response.message)) {
+                this.invoices = response.message;
+                if (response.message.length === 0) {
+                  this.show_empty_state();
+                } else {
+                  response.message.forEach((invoice) => {
+                    const invoice_html = this.get_invoice_html(invoice);
+                    this.$invoices_container.append(invoice_html);
+                  });
+                }
+              } else {
+                this.show_empty_state();
+              }
+            } catch (error) {
+              console.error("Response processing error:", error);
+              frappe.dom.unfreeze();
+              frappe.show_alert({
+                message: __("Failed to process order data"),
+                indicator: this.constructor.CONSTANTS.INDICATORS.RED
+              });
+            }
+          },
+          error: (error) => {
+            console.error("API call error:", error);
+            frappe.dom.unfreeze();
+            frappe.show_alert({
+              message: __("Failed to fetch orders. Please try again."),
+              indicator: this.constructor.CONSTANTS.INDICATORS.RED
+            });
+            this.show_error_state();
+          }
+        });
+      } catch (error) {
+        console.error("Refresh list error:", error);
+        frappe.dom.unfreeze();
+        frappe.show_alert({
+          message: __("Failed to refresh order list"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
     }
     get_invoice_html(invoice) {
-      const posting_datetime = moment(invoice.posting_date + " " + invoice.posting_time).format("Do MMMM, h:mma");
-      return `<div class="invoice-wrapper" data-invoice-name="${escape(invoice.name)}">
-				<div class="invoice-name-date">
-					<div class="invoice-name">${invoice.name}</div>
-					<div class="invoice-date">
-						<svg class="mr-2" width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-						</svg>
-						${frappe.ellipsis(invoice.customer, 20)}
+      try {
+        if (!invoice || !invoice.name) {
+          console.warn("Invalid invoice data:", invoice);
+          return "";
+        }
+        const posting_datetime = moment(invoice.posting_date + " " + invoice.posting_time).format("Do MMMM, h:mma");
+        const customer_name = invoice.customer || __("Unknown Customer");
+        const grand_total = invoice.grand_total || 0;
+        const currency = invoice.currency || frappe.defaults.get_default("currency");
+        return `<div class="invoice-wrapper" data-invoice-name="${escape(invoice.name)}">
+					<div class="invoice-name-date">
+						<div class="invoice-name">${invoice.name}</div>
+						<div class="invoice-date">
+							<svg class="mr-2" width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+							</svg>
+							${frappe.ellipsis(customer_name, this.constructor.CONSTANTS.DISPLAY.CUSTOMER_NAME_LENGTH)}
+						</div>
+					</div>
+					<div class="invoice-total-status">
+						<div class="invoice-total">${format_currency(grand_total, currency, this.constructor.CONSTANTS.DISPLAY.CURRENCY_DECIMALS)}</div>
+						<div class="invoice-date">${posting_datetime}</div>
 					</div>
 				</div>
-				<div class="invoice-total-status">
-					<div class="invoice-total">${format_currency(invoice.grand_total, invoice.currency, 0) || 0}</div>
-					<div class="invoice-date">${posting_datetime}</div>
+				<div class="seperator"></div>`;
+      } catch (error) {
+        console.error("Invoice HTML generation error:", error);
+        return `<div class="invoice-wrapper error">
+				<div class="invoice-name-date">
+					<div class="invoice-name">${__("Error loading invoice")}</div>
 				</div>
-			</div>
-			<div class="seperator"></div>`;
+			</div>`;
+      }
     }
     toggle_component(show) {
-      frappe.run_serially([
-        () => show ? this.$component.css("display", "flex") && this.refresh_list() : this.$component.css("display", "none"),
-        () => this.events.open_invoice_data(invoicess[0].name)
-      ]);
+      try {
+        if (show) {
+          this.$component.css("display", "flex");
+          this.refresh_list();
+        } else {
+          this.$component.css("display", "none");
+        }
+      } catch (error) {
+        console.error("Toggle component error:", error);
+        frappe.show_alert({
+          message: __("Failed to toggle order list view"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
     }
-  };
+    show_empty_state() {
+      this.$invoices_container.html(`
+			<div class="empty-state" style="text-align: center; padding: 2rem; color: #8d99a6;">
+				<div style="font-size: 48px; margin-bottom: 1rem;">\u{1F4C4}</div>
+				<div style="font-size: 18px; margin-bottom: 0.5rem;">${__("No Orders Found")}</div>
+				<div style="font-size: 14px;">${__("Try adjusting your search criteria or create a new order")}</div>
+			</div>
+		`);
+    }
+    show_error_state() {
+      this.$invoices_container.html(`
+			<div class="error-state" style="text-align: center; padding: 2rem; color: #d1453b;">
+				<div style="font-size: 48px; margin-bottom: 1rem;">\u26A0\uFE0F</div>
+				<div style="font-size: 18px; margin-bottom: 0.5rem;">${__("Failed to Load Orders")}</div>
+				<div style="font-size: 14px;">${__("Please check your connection and try again")}</div>
+			</div>
+		`);
+    }
+    destroy() {
+      try {
+        if (this.last_search) {
+          clearTimeout(this.last_search);
+          this.last_search = null;
+        }
+        if (this.$invoices_container) {
+          this.$invoices_container.off("click", this.constructor.CONSTANTS.SELECTORS.INVOICE_WRAPPER);
+        }
+        if (this.$component) {
+          this.$component.off("click", this.constructor.CONSTANTS.SELECTORS.BACK_BUTTON);
+        }
+        if (this.search_field && this.search_field.$input) {
+          this.search_field.$input.off("input");
+        }
+        this.invoices = null;
+        this.search_field = null;
+        this.status_field = null;
+        this.$component = null;
+        this.$invoices_container = null;
+        this.wrapper = null;
+        this.events = null;
+      } catch (error) {
+        console.error("Cleanup error:", error);
+      }
+    }
+  }, __publicField(_a3, "CONSTANTS", {
+    SEARCH: {
+      DEBOUNCE_DELAY: 300,
+      PLACEHOLDER: "Search by invoice id or customer name"
+    },
+    STATUS: {
+      OPTIONS: "Draft\nPaid\nUnpaid\nReturn",
+      DEFAULT: "Draft"
+    },
+    DISPLAY: {
+      CUSTOMER_NAME_LENGTH: 20,
+      CURRENCY_DECIMALS: 0
+    },
+    API: {
+      ENDPOINT: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list"
+    },
+    SELECTORS: {
+      INVOICE_WRAPPER: ".invoice-wrapper",
+      BACK_BUTTON: ".back"
+    },
+    INDICATORS: {
+      GREEN: "green",
+      RED: "red",
+      ORANGE: "orange",
+      BLUE: "blue"
+    }
+  }), _a3);
 
   // ../posnext/posnext/public/js/pos_past_order_summary.js
   frappe.provide("posnext.PointOfSale");
-  posnext.PointOfSale.PastOrderSummary = class {
+  var _a4;
+  posnext.PointOfSale.PastOrderSummary = (_a4 = class {
     constructor({ wrapper, pos_profile, events }) {
-      this.wrapper = wrapper;
-      this.pos_profile = pos_profile;
-      this.events = events;
-      this.init_component();
+      try {
+        this.wrapper = wrapper;
+        this.pos_profile = pos_profile;
+        this.events = events;
+        this.customer_email = "";
+        this.doc = null;
+        this.dialogs = {};
+        this.eventListeners = [];
+        this.init_component();
+      } catch (error) {
+        console.error("Error initializing PastOrderSummary:", error);
+        frappe.show_alert({
+          message: __("Failed to initialize order summary. Please refresh the page."),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
     }
     init_component() {
-      this.prepare_dom();
-      this.init_email_print_dialog();
-      this.bind_events();
-      this.attach_shortcuts();
+      try {
+        this.prepare_dom();
+        this.init_email_print_dialog();
+        this.bind_events();
+        this.attach_shortcuts();
+      } catch (error) {
+        console.error("Error during component initialization:", error);
+        frappe.show_alert({
+          message: __("Component initialization failed. Some features may not work."),
+          indicator: this.constructor.CONSTANTS.INDICATORS.ORANGE
+        });
+      }
+    }
+    destroy() {
+      try {
+        this.eventListeners.forEach(({ element, event, handler }) => {
+          if (element && element.off) {
+            element.off(event, handler);
+          }
+        });
+        this.eventListeners = [];
+        Object.values(this.dialogs).forEach((dialog) => {
+          if (dialog && dialog.hide) {
+            dialog.hide();
+          }
+        });
+        this.dialogs = {};
+        if (frappe.ui.keys) {
+          frappe.ui.keys.off("ctrl+enter");
+          frappe.ui.keys.remove_shortcut && frappe.ui.keys.remove_shortcut("ctrl+p");
+          frappe.ui.keys.remove_shortcut && frappe.ui.keys.remove_shortcut("ctrl+e");
+        }
+        this.doc = null;
+        this.customer_email = "";
+      } catch (error) {
+        console.error("Error during cleanup:", error);
+      }
     }
     prepare_dom() {
       this.wrapper.append(
@@ -4738,29 +7032,53 @@ Return`,
       this.$summary_btns = this.$summary_container.find(".summary-btns");
     }
     init_email_print_dialog() {
-      const email_dialog = new frappe.ui.Dialog({
-        title: "Email Receipt",
-        fields: [
-          { fieldname: "email_id", fieldtype: "Data", options: "Email", label: "Email ID", reqd: 1 },
-          { fieldname: "content", fieldtype: "Small Text", label: "Message (if any)" }
-        ],
-        primary_action: () => {
-          this.send_email();
-        },
-        primary_action_label: __("Send")
-      });
-      this.email_dialog = email_dialog;
-      const print_dialog = new frappe.ui.Dialog({
-        title: "Print Receipt",
-        fields: [
-          { fieldname: "print", fieldtype: "Data", label: "Print Preview" }
-        ],
-        primary_action: () => {
-          this.print_receipt();
-        },
-        primary_action_label: __("Print")
-      });
-      this.print_dialog = print_dialog;
+      try {
+        const email_dialog = new frappe.ui.Dialog({
+          title: __("Email Receipt"),
+          fields: [
+            {
+              fieldname: "email_id",
+              fieldtype: "Data",
+              options: "Email",
+              label: __("Email ID"),
+              reqd: 1,
+              description: __("Enter a valid email address")
+            },
+            {
+              fieldname: "content",
+              fieldtype: "Small Text",
+              label: __("Message (if any)")
+            }
+          ],
+          primary_action: () => {
+            this.send_email();
+          },
+          primary_action_label: __("Send")
+        });
+        this.dialogs.email = email_dialog;
+        const print_dialog = new frappe.ui.Dialog({
+          title: __("Print Receipt"),
+          fields: [
+            {
+              fieldname: "print",
+              fieldtype: "Data",
+              label: __("Print Preview"),
+              read_only: 1
+            }
+          ],
+          primary_action: () => {
+            this.print_receipt();
+          },
+          primary_action_label: __("Print")
+        });
+        this.dialogs.print = print_dialog;
+      } catch (error) {
+        console.error("Error initializing dialogs:", error);
+        frappe.show_alert({
+          message: __("Dialog initialization failed. Email and print features may not work."),
+          indicator: this.constructor.CONSTANTS.INDICATORS.ORANGE
+        });
+      }
     }
     get_upper_section_html(doc) {
       const { status } = doc;
@@ -4854,41 +7172,17 @@ Return`,
         this.show_summary_placeholder();
       });
       this.$summary_container.on("click", ".send-btn", () => {
-        if (!this.pos_profile.custom_notification_message_whatsapp) {
+        try {
+          this.send_whatsapp();
+        } catch (error) {
+          console.error("WhatsApp send error:", error);
           frappe.show_alert({
-            message: __("WhatsApp notification is not enabled in POS Profile"),
-            indicator: "orange"
+            message: __("WhatsApp feature encountered an error"),
+            indicator: this.constructor.CONSTANTS.INDICATORS.RED
           });
-          return;
         }
-        if (!this.doc.customer) {
-          frappe.throw(__("Please select a customer first"));
-          return;
-        }
-        frappe.db.get_value("Customer", this.doc.customer, "mobile_no").then(({ message }) => {
-          if (message.mobile_no) {
-            const mobile_no = message.mobile_no.replace(/[^0-9]/g, "");
-            const whatsapp_message = "https://wa.me/" + mobile_no + "?text=";
-            const print_url = frappe.urllib.get_full_url(
-              "/printview?doctype=" + encodeURIComponent(this.doc.doctype) + "&name=" + encodeURIComponent(this.doc.name) + "&format=" + encodeURIComponent(this.pos_profile.print_format) + "&no_letterhead=0&_lang=" + encodeURIComponent(frappe.boot.lang) + "&trigger_print=1"
-            );
-            const final_message = whatsapp_message + encodeURIComponent("Please find your invoice here \n" + print_url);
-            window.open(final_message);
-          } else {
-            var field_values = this.pos_profile.custom_whatsapp_field_names.map((x) => this.doc[x.field_name]);
-            var message_body = formatString(this.pos_profile.custom_whatsapp_message, field_values);
-            const print_url = frappe.urllib.get_full_url(
-              "/printview?doctype=" + encodeURIComponent(this.doc.doctype) + "&name=" + encodeURIComponent(this.doc.name) + "&format=" + encodeURIComponent(this.pos_profile.print_format) + "&no_letterhead=0&_lang=" + encodeURIComponent(frappe.boot.lang) + "&trigger_print=1"
-            );
-            message_body += "\n\nPlease find your invoice here:\n" + print_url;
-            var encoded_message = encodeURIComponent(message_body);
-            var phone_number = this.doc.customer;
-            var whatsapp_url = "https://wa.me/" + phone_number + "?text=" + encoded_message;
-            window.open(whatsapp_url, "_blank");
-          }
-        });
       });
-      function formatString(str, args) {
+      function formatString2(str, args) {
         return str.replace(/{(\d+)}/g, function(match, number) {
           return typeof args[number] !== "undefined" ? args[number] : match;
         });
@@ -4908,40 +7202,90 @@ Return`,
       });
     }
     print_receipt() {
-      const frm = this.events.get_frm();
-      const print_format = frm.pos_print_format;
-      const doctype = this.doc.doctype;
-      const docname = this.doc.name;
-      const letterhead = this.doc.letter_head || __("No Letterhead");
-      const lang_code = this.doc.language || frappe.boot.lang;
-      frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing").then(({ message }) => {
-        if (message && message.enable_raw_printing === "1") {
-          this._print_via_qz(doctype, docname, print_format, letterhead, lang_code);
-        } else {
-          frappe.utils.print(
-            doctype,
-            docname,
-            print_format,
-            letterhead,
-            lang_code
-          );
+      try {
+        if (!this.dialogs.print) {
+          frappe.throw(__("Print dialog not available"));
+          return;
         }
-      });
+        const frm = this.events.get_frm();
+        if (!frm || !frm.pos_print_format) {
+          frappe.show_alert({
+            message: __("Print format not configured"),
+            indicator: this.constructor.CONSTANTS.INDICATORS.RED
+          });
+          return;
+        }
+        const print_format = frm.pos_print_format;
+        const doctype = this.doc.doctype;
+        const docname = this.doc.name;
+        const letterhead = this.doc.letter_head || __("No Letterhead");
+        const lang_code = this.doc.language || frappe.boot.lang;
+        frappe.show_alert({
+          message: __("Preparing print..."),
+          indicator: this.constructor.CONSTANTS.INDICATORS.BLUE
+        });
+        frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing").then(({ message }) => {
+          if (message && message.enable_raw_printing === "1") {
+            this._print_via_qz(doctype, docname, print_format, letterhead, lang_code);
+          } else {
+            this._print_via_browser(doctype, docname, print_format, letterhead, lang_code);
+          }
+        }).catch((error) => {
+          console.error("Print settings fetch error:", error);
+          this._print_via_browser(doctype, docname, print_format, letterhead, lang_code);
+        });
+      } catch (error) {
+        console.error("Print function error:", error);
+        frappe.show_alert({
+          message: __("Print feature encountered an error"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
+    }
+    _print_via_browser(doctype, docname, print_format, letterhead, lang_code) {
+      try {
+        frappe.utils.print(
+          doctype,
+          docname,
+          print_format,
+          letterhead,
+          lang_code
+        );
+        frappe.show_alert({
+          message: __("Print opened successfully"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.GREEN
+        });
+      } catch (error) {
+        console.error("Browser print error:", error);
+        frappe.show_alert({
+          message: __("Failed to open print preview"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
     }
     _print_via_qz(doctype, docname, print_format, letterhead, lang_code) {
-      const print_format_printer_map = this._get_print_format_printer_map();
-      const mapped_printer = this._get_mapped_printer(print_format_printer_map, doctype, print_format);
-      if (mapped_printer.length === 1) {
-        this._print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, mapped_printer[0]);
-      } else if (this._is_raw_printing(print_format)) {
+      try {
+        const print_format_printer_map = this._get_print_format_printer_map();
+        const mapped_printer = this._get_mapped_printer(print_format_printer_map, doctype, print_format);
+        if (mapped_printer.length === 1) {
+          this._print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, mapped_printer[0]);
+        } else if (this._is_raw_printing(print_format)) {
+          frappe.show_alert({
+            message: __("Printer mapping not set."),
+            subtitle: __("Please set a printer mapping for this print format in the Printer Settings"),
+            indicator: this.constructor.CONSTANTS.INDICATORS.ORANGE
+          }, this.constructor.CONSTANTS.DELAYS.LONG_ALERT);
+          this._printer_setting_dialog(doctype, print_format);
+        } else {
+          this._render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
+        }
+      } catch (error) {
+        console.error("QZ print error:", error);
         frappe.show_alert({
-          message: __("Printer mapping not set."),
-          subtitle: __("Please set a printer mapping for this print format in the Printer Settings"),
-          indicator: "warning"
-        }, 14);
-        this._printer_setting_dialog(doctype, print_format);
-      } else {
-        this._render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
+          message: __("QZ printer failed, falling back to browser print"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.ORANGE
+        });
+        this._print_via_browser(doctype, docname, print_format, letterhead, lang_code);
       }
     }
     _print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, printer_map) {
@@ -5107,44 +7451,184 @@ Return`,
       });
     }
     send_email() {
-      const frm = this.events.get_frm();
-      const recipients = this.email_dialog.get_values().email_id;
-      const content = this.email_dialog.get_values().content;
-      const doc = this.doc || frm.doc;
-      const print_format = frm.pos_print_format;
-      frappe.call({
-        method: "frappe.core.doctype.communication.email.make",
-        args: {
-          recipients,
-          subject: __(frm.meta.name) + ": " + doc.name,
-          content: content ? content : __(frm.meta.name) + ": " + doc.name,
-          doctype: doc.doctype,
-          name: doc.name,
-          send_email: 1,
-          print_format,
-          sender_full_name: frappe.user.full_name(),
-          _lang: doc.language
-        },
-        callback: (r) => {
-          if (!r.exc) {
-            frappe.utils.play_sound("email");
-            if (r.message["emails_not_sent_to"]) {
-              frappe.msgprint(__(
-                "Email not sent to {0} (unsubscribed / disabled)",
-                [frappe.utils.escape_html(r.message["emails_not_sent_to"])]
-              ));
-            } else {
-              frappe.show_alert({
-                message: __("Email sent successfully."),
-                indicator: "green"
-              });
-            }
-            this.email_dialog.hide();
-          } else {
-            frappe.msgprint(__("There were errors while sending email. Please try again."));
-          }
+      try {
+        if (!this.dialogs.email) {
+          frappe.throw(__("Email dialog not available"));
+          return;
         }
-      });
+        const form_data = this.dialogs.email.get_values();
+        if (!form_data.email_id || !this.validate_email(form_data.email_id)) {
+          frappe.show_alert({
+            message: __("Please enter a valid email address"),
+            indicator: this.constructor.CONSTANTS.INDICATORS.RED
+          });
+          return;
+        }
+        const frm = this.events.get_frm();
+        const recipients = form_data.email_id;
+        const content = form_data.content;
+        const doc = this.doc || frm.doc;
+        const print_format = frm.pos_print_format;
+        this.dialogs.email.set_primary_action(__("Sending..."));
+        this.dialogs.email.disable_primary_action();
+        frappe.call({
+          method: "frappe.core.doctype.communication.email.make",
+          args: {
+            recipients,
+            subject: __(frm.meta.name) + ": " + doc.name,
+            content: content ? content : __(frm.meta.name) + ": " + doc.name,
+            doctype: doc.doctype,
+            name: doc.name,
+            send_email: 1,
+            print_format,
+            sender_full_name: frappe.user.full_name(),
+            _lang: doc.language
+          },
+          callback: (r) => {
+            this.dialogs.email.enable_primary_action();
+            this.dialogs.email.set_primary_action(__("Send"));
+            if (!r.exc) {
+              frappe.utils.play_sound("email");
+              if (r.message["emails_not_sent_to"]) {
+                frappe.msgprint(__(
+                  "Email not sent to {0} (unsubscribed / disabled)",
+                  [frappe.utils.escape_html(r.message["emails_not_sent_to"])]
+                ));
+              } else {
+                frappe.show_alert({
+                  message: __("Email sent successfully."),
+                  indicator: this.constructor.CONSTANTS.INDICATORS.GREEN
+                });
+              }
+              this.dialogs.email.hide();
+            } else {
+              console.error("Email send error:", r.exc);
+              frappe.msgprint(__("There were errors while sending email. Please try again."));
+            }
+          },
+          error: (error) => {
+            console.error("Email call error:", error);
+            this.dialogs.email.enable_primary_action();
+            this.dialogs.email.set_primary_action(__("Send"));
+            frappe.show_alert({
+              message: __("Email sending failed. Please try again."),
+              indicator: this.constructor.CONSTANTS.INDICATORS.RED
+            });
+          }
+        });
+      } catch (error) {
+        console.error("Email function error:", error);
+        frappe.show_alert({
+          message: __("Email feature encountered an error"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
+    }
+    validate_email(email) {
+      const emailRegex = this.constructor.CONSTANTS.VALIDATION.EMAIL_REGEX;
+      const maxLength = this.constructor.CONSTANTS.VALIDATION.EMAIL_MAX_LENGTH;
+      return emailRegex.test(email) && email.length <= maxLength;
+    }
+    send_whatsapp() {
+      try {
+        if (!this.pos_profile.custom_notification_message_whatsapp) {
+          frappe.show_alert({
+            message: __("WhatsApp notification is not enabled in POS Profile"),
+            indicator: this.constructor.CONSTANTS.INDICATORS.ORANGE
+          });
+          return;
+        }
+        if (!this.doc.customer) {
+          frappe.throw(__("Please select a customer first"));
+          return;
+        }
+        frappe.db.get_value("Customer", this.doc.customer, "mobile_no").then(({ message }) => {
+          this.process_whatsapp_send(message);
+        }).catch((error) => {
+          console.error("Error fetching customer mobile:", error);
+          frappe.show_alert({
+            message: __("Failed to fetch customer mobile number"),
+            indicator: this.constructor.CONSTANTS.INDICATORS.RED
+          });
+        });
+      } catch (error) {
+        console.error("WhatsApp function error:", error);
+        frappe.show_alert({
+          message: __("WhatsApp feature encountered an error"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
+    }
+    process_whatsapp_send(customer_data) {
+      try {
+        const print_url = this.generate_print_url();
+        if (customer_data.mobile_no) {
+          this.send_whatsapp_with_mobile(customer_data.mobile_no, print_url);
+        } else {
+          this.send_whatsapp_without_mobile(print_url);
+        }
+      } catch (error) {
+        console.error("WhatsApp processing error:", error);
+        frappe.show_alert({
+          message: __("Error processing WhatsApp message"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
+    }
+    send_whatsapp_with_mobile(mobile_no, print_url) {
+      const cleaned_mobile = mobile_no.replace(/[^0-9]/g, "");
+      if (!this.validate_mobile(cleaned_mobile)) {
+        frappe.show_alert({
+          message: __("Invalid mobile number format"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+        return;
+      }
+      const whatsapp_message = this.constructor.CONSTANTS.WHATSAPP.BASE_URL + cleaned_mobile + "?text=";
+      const message_text = this.constructor.CONSTANTS.WHATSAPP.DEFAULT_MESSAGE + " \n" + print_url;
+      const final_message = whatsapp_message + encodeURIComponent(message_text);
+      this.open_whatsapp_url(final_message);
+    }
+    send_whatsapp_without_mobile(print_url) {
+      if (!this.pos_profile.custom_whatsapp_field_names || !this.pos_profile.custom_whatsapp_message) {
+        frappe.show_alert({
+          message: __("WhatsApp configuration incomplete"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.ORANGE
+        });
+        return;
+      }
+      const field_values = this.pos_profile.custom_whatsapp_field_names.map((x) => this.doc[x.field_name]);
+      let message_body = formatString(this.pos_profile.custom_whatsapp_message, field_values);
+      message_body += "\n\n" + this.constructor.CONSTANTS.WHATSAPP.DEFAULT_MESSAGE + ":\n" + print_url;
+      const encoded_message = encodeURIComponent(message_body);
+      const phone_number = this.doc.customer;
+      const whatsapp_url = this.constructor.CONSTANTS.WHATSAPP.BASE_URL + phone_number + "?text=" + encoded_message;
+      this.open_whatsapp_url(whatsapp_url);
+    }
+    generate_print_url() {
+      return frappe.urllib.get_full_url(
+        "/printview?doctype=" + encodeURIComponent(this.doc.doctype) + "&name=" + encodeURIComponent(this.doc.name) + "&format=" + encodeURIComponent(this.pos_profile.print_format) + "&no_letterhead=0&_lang=" + encodeURIComponent(frappe.boot.lang) + "&trigger_print=1"
+      );
+    }
+    validate_mobile(mobile) {
+      const minLength = this.constructor.CONSTANTS.VALIDATION.MIN_MOBILE_LENGTH;
+      const maxLength = this.constructor.CONSTANTS.VALIDATION.MAX_MOBILE_LENGTH;
+      return mobile && mobile.length >= minLength && mobile.length <= maxLength;
+    }
+    open_whatsapp_url(url) {
+      try {
+        window.open(url, "_blank");
+        frappe.show_alert({
+          message: __("WhatsApp opened successfully"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.GREEN
+        });
+      } catch (error) {
+        console.error("Error opening WhatsApp URL:", error);
+        frappe.show_alert({
+          message: __("Failed to open WhatsApp"),
+          indicator: this.constructor.CONSTANTS.INDICATORS.RED
+        });
+      }
     }
     add_summary_btns(map) {
       this.$summary_btns.html("");
@@ -5253,8 +7737,8 @@ Return`,
       show ? this.$component.css("display", "flex") : this.$component.css("display", "none");
     }
     async print_receipt_on_order_complete() {
-      var _a3;
-      const profile_name = ((_a3 = this.pos_profile) == null ? void 0 : _a3.name) || this.pos_profile;
+      var _a5;
+      const profile_name = ((_a5 = this.pos_profile) == null ? void 0 : _a5.name) || this.pos_profile;
       const { message } = await frappe.db.get_value(
         "POS Profile",
         profile_name,
@@ -5264,6 +7748,33 @@ Return`,
         setTimeout(() => this.print_receipt(), 300);
       }
     }
-  };
+  }, __publicField(_a4, "CONSTANTS", {
+    DELAYS: {
+      PRINT_DELAY: 300,
+      AUTO_PRINT_DELAY: 500,
+      EMAIL_SEND_DELAY: 1e3
+    },
+    VALIDATION: {
+      MIN_MOBILE_LENGTH: 10,
+      MAX_MOBILE_LENGTH: 15,
+      EMAIL_REGEX: /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    },
+    WHATSAPP: {
+      BASE_URL: "https://wa.me/",
+      MESSAGE_TEMPLATE: "Invoice {0} from {1}"
+    },
+    STATUSES: {
+      PAID: "Paid",
+      CONSOLIDATED: "Consolidated",
+      DRAFT: "Draft",
+      RETURN: "Return"
+    },
+    INDICATORS: {
+      GREEN: "green",
+      RED: "red",
+      GREY: "grey",
+      ORANGE: "orange"
+    }
+  }), _a4);
 })();
-//# sourceMappingURL=posnext.bundle.OFY4N2DX.js.map
+//# sourceMappingURL=posnext.bundle.GKHLITO4.js.map

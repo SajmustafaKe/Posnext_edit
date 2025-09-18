@@ -708,25 +708,57 @@ posnext.PointOfSale.ItemSelector = class {
 
 
 		this.$component.on('click', '.item-wrapper', function() {
-			const $item = $(this);
-			const item_code = unescape($item.attr('data-item-code'));
-			let batch_no = unescape($item.attr('data-batch-no'));
-			let serial_no = unescape($item.attr('data-serial-no'));
-			let uom = unescape($item.attr('data-uom'));
-			let rate = unescape($item.attr('data-rate'));
-			let valuation_rate = unescape($item.attr('data-valuation-rate'));
-			let custom_item_uoms = $item.attr('data-item-uoms');
-			let custom_logical_rack = $item.attr('data-item-logical-rack')
-			// escape(undefined) returns "un	defined" then unescape returns "undefined"
-			batch_no = batch_no === "undefined" ? undefined : batch_no;
-			serial_no = serial_no === "undefined" ? undefined : serial_no;
-			uom = uom === "undefined" ? undefined : uom;
-			rate = rate === "undefined" ? undefined : rate;
-			me.events.item_selected({
-				field: 'qty',
-				value: "+1",
-				item: { item_code, batch_no, serial_no, uom, rate ,valuation_rate, custom_item_uoms, custom_logical_rack}
-			});
+			try {
+				console.log('Item clicked - starting add to cart process');
+				const $item = $(this);
+				const item_code = unescape($item.attr('data-item-code'));
+				let batch_no = unescape($item.attr('data-batch-no'));
+				let serial_no = unescape($item.attr('data-serial-no'));
+				let uom = unescape($item.attr('data-uom'));
+				let rate = unescape($item.attr('data-rate'));
+				let valuation_rate = unescape($item.attr('data-valuation-rate'));
+				let custom_item_uoms = $item.attr('data-item-uoms');
+				let custom_logical_rack = $item.attr('data-item-logical-rack')
+				
+				console.log('Item data extracted:', {
+					item_code, batch_no, serial_no, uom, rate, valuation_rate
+				});
+				
+				// escape(undefined) returns "un	defined" then unescape returns "undefined"
+				batch_no = batch_no === "undefined" ? undefined : batch_no;
+				serial_no = serial_no === "undefined" ? undefined : serial_no;
+				uom = uom === "undefined" ? undefined : uom;
+				rate = rate === "undefined" ? undefined : rate;
+				
+				console.log('Calling me.events.item_selected with:', {
+					field: 'qty',
+					value: "+1",
+					item: { item_code, batch_no, serial_no, uom, rate ,valuation_rate, custom_item_uoms, custom_logical_rack}
+				});
+				
+				if (!me.events || !me.events.item_selected) {
+					console.error('Error: me.events.item_selected is not defined!', me.events);
+					frappe.show_alert({
+						message: __('Error: Cart functionality not initialized'),
+						indicator: 'red'
+					});
+					return;
+				}
+				
+				me.events.item_selected({
+					field: 'qty',
+					value: "+1",
+					item: { item_code, batch_no, serial_no, uom, rate ,valuation_rate, custom_item_uoms, custom_logical_rack}
+				});
+				
+				console.log('Item successfully added to cart');
+			} catch (error) {
+				console.error('Error adding item to cart:', error);
+				frappe.show_alert({
+					message: __('Error adding item to cart: ') + error.message,
+					indicator: 'red'
+				});
+			}
 			// me.search_field.set_focus();
 		});
 

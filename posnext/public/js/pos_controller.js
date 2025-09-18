@@ -3,32 +3,114 @@ var selected_item = null
 
 posnext.PointOfSale.Controller = class {
 	constructor(wrapper) {
-		console.log("CONTROLLLLLERE")
-		this.wrapper = $(wrapper).find('.layout-main-section');
-		this.page = wrapper.page;
-		frappe.run_serially([
-			() => this.reload_status = false,
-			() => this.check_opening_entry(""),
-			() => this.reload_status = true,
-		]);
+		try {
+			console.log("Initializing POS Controller with enhanced error handling");
+			
+			// Validate wrapper parameter
+			if (!wrapper) {
+				console.error('Wrapper parameter is required for POS Controller');
+				frappe.msgprint(__('Failed to initialize POS: Invalid wrapper'));
+				return;
+			}
+			
+			this.wrapper = $(wrapper).find('.layout-main-section');
+			if (!this.wrapper.length) {
+				console.error('Layout main section not found in wrapper');
+				frappe.msgprint(__('Failed to initialize POS: Layout section not found'));
+				return;
+			}
+			
+			this.page = wrapper.page;
+			
+			// Enhanced initialization sequence with error handling
+			frappe.run_serially([
+				() => {
+					try {
+						this.reload_status = false;
+						return Promise.resolve();
+					} catch (error) {
+						console.error('Error setting reload status:', error);
+						return Promise.reject(error);
+					}
+				},
+				() => {
+					try {
+						return this.check_opening_entry("");
+					} catch (error) {
+						console.error('Error checking opening entry:', error);
+						frappe.show_alert({
+							message: __('Error checking opening entry'),
+							indicator: 'red'
+						});
+						return Promise.resolve(); // Continue initialization
+					}
+				},
+				() => {
+					try {
+						this.reload_status = true;
+						return Promise.resolve();
+					} catch (error) {
+						console.error('Error finalizing initialization:', error);
+						return Promise.resolve(); // Don't block initialization
+					}
+				}
+			]).catch(error => {
+				console.error('Critical error during POS initialization:', error);
+				frappe.msgprint({
+					title: __('POS Initialization Error'),
+					message: __('Failed to initialize POS system. Please refresh the page.'),
+					indicator: 'red'
+				});
+			});
 
-		this.setup_form_events();
-
+			this.setup_form_events();
+			
+			console.log("POS Controller initialized successfully");
+		} catch (error) {
+			console.error('Critical error in POS Controller constructor:', error);
+			frappe.msgprint({
+				title: __('POS System Error'),
+				message: __('Failed to start POS system. Please contact system administrator.'),
+				indicator: 'red'
+			});
+		}
 	}
 	setup_form_events() {
-		frappe.ui.form.on('Sales Invoice', {
-			after_save: function(frm) {
-				if (!frm.doc.pos_profile) return;
-	
-				frappe.db.get_doc('POS Profile', frm.doc.pos_profile)
-					.then(pos_profile => {
-						if (pos_profile.custom_stock_update) {
-							frm.set_value('update_stock', 0);
-							// frm.save();
-						}
-					});
-			}
-		});
+		try {
+			console.log('Setting up form events with error handling');
+			
+			frappe.ui.form.on('Sales Invoice', {
+				after_save: function(frm) {
+					try {
+						if (!frm.doc.pos_profile) return;
+			
+						frappe.db.get_doc('POS Profile', frm.doc.pos_profile)
+							.then(pos_profile => {
+								try {
+									if (pos_profile.custom_stock_update) {
+										frm.set_value('update_stock', 0);
+									}
+								} catch (error) {
+									console.error('Error processing POS profile settings:', error);
+								}
+							})
+							.catch(error => {
+								console.error('Error fetching POS profile:', error);
+							});
+					} catch (error) {
+						console.error('Error in Sales Invoice after_save event:', error);
+					}
+				}
+			});
+			
+			console.log('Form events setup completed');
+		} catch (error) {
+			console.error('Error setting up form events:', error);
+			frappe.show_alert({
+				message: __('Error setting up form events'),
+				indicator: 'orange'
+			});
+		}
 	}
 	
 
@@ -165,29 +247,82 @@ find_available_opening_entry() {
 	}
 
 	async prepare_app_defaults(data) {
-		this.pos_opening = data.name;
-		this.company = data.company;
-		this.pos_profile = data.pos_profile;
-		this.pos_opening_time = data.period_start_date;
-		this.item_stock_map = {};
-		this.settings = {};
-		window.current_pos_profile = this.pos_profile
-		frappe.db.get_value('Stock Settings', undefined, 'allow_negative_stock').then(({ message }) => {
-			this.allow_negative_stock = flt(message.allow_negative_stock) || false;
-		});
-
-		frappe.call({
-			method: "posnext.posnext.page.posnext.point_of_sale.get_pos_profile_data",
-			args: { "pos_profile": this.pos_profile },
-			callback: (res) => {
-				const profile = res.message;
-
-				Object.assign(this.settings, profile);
-				this.settings.customer_groups = profile.customer_groups.map(group => group.name);
-
-				this.make_app();
+		try {
+			console.log('Preparing app defaults with enhanced error handling');
+			
+			// Validate data parameter
+			if (!data || !data.name) {
+				console.error('Invalid data provided to prepare_app_defaults');
+				frappe.msgprint(__('Invalid initialization data. Please refresh the page.'));
+				return;
 			}
-		});
+			
+			this.pos_opening = data.name;
+			this.company = data.company;
+			this.pos_profile = data.pos_profile;
+			this.pos_opening_time = data.period_start_date;
+			this.item_stock_map = {};
+			this.settings = {};
+			window.current_pos_profile = this.pos_profile;
+			
+			// Enhanced stock settings fetch with error handling
+			try {
+				const stockSettings = await frappe.db.get_value('Stock Settings', undefined, 'allow_negative_stock');
+				this.allow_negative_stock = flt(stockSettings.message.allow_negative_stock) || false;
+			} catch (error) {
+				console.error('Error fetching stock settings:', error);
+				this.allow_negative_stock = false; // Safe default
+			}
+
+			frappe.call({
+				method: "posnext.posnext.page.posnext.point_of_sale.get_pos_profile_data",
+				args: { "pos_profile": this.pos_profile },
+				callback: (res) => {
+					try {
+						if (!res.message) {
+							console.error('No POS profile data received');
+							frappe.msgprint(__('Failed to load POS profile data. Please refresh the page.'));
+							return;
+						}
+						
+						const profile = res.message;
+						Object.assign(this.settings, profile);
+						
+						// Safely handle customer groups
+						if (profile.customer_groups && Array.isArray(profile.customer_groups)) {
+							this.settings.customer_groups = profile.customer_groups.map(group => group.name);
+						} else {
+							this.settings.customer_groups = [];
+							console.warn('No customer groups found in POS profile');
+						}
+
+						this.make_app();
+					} catch (error) {
+						console.error('Error processing POS profile data:', error);
+						frappe.msgprint({
+							title: __('POS Profile Error'),
+							message: __('Error processing POS profile. Please refresh the page.'),
+							indicator: 'red'
+						});
+					}
+				},
+				error: (error) => {
+					console.error('Error fetching POS profile data:', error);
+					frappe.msgprint({
+						title: __('Network Error'),
+						message: __('Failed to fetch POS profile data. Please check your connection and refresh.'),
+						indicator: 'red'
+					});
+				}
+			});
+		} catch (error) {
+			console.error('Critical error in prepare_app_defaults:', error);
+			frappe.msgprint({
+				title: __('Initialization Error'),
+				message: __('Failed to prepare POS defaults. Please refresh the page.'),
+				indicator: 'red'
+			});
+		}
 	}
 
 	set_opening_entry_status() {
@@ -200,10 +335,71 @@ find_available_opening_entry() {
 	}
 
 	make_app() {
-		this.prepare_dom();
-		this.prepare_components();
-		this.prepare_menu();
-		this.make_new_invoice();
+		try {
+			console.log('Making POS app with enhanced error handling');
+			
+			// Validate required settings before proceeding
+			if (!this.settings) {
+				console.error('Settings not available for app creation');
+				frappe.msgprint(__('POS settings not loaded. Please refresh the page.'));
+				return;
+			}
+			
+			try {
+				this.prepare_dom();
+				console.log('DOM preparation completed');
+			} catch (error) {
+				console.error('Error preparing DOM:', error);
+				frappe.show_alert({
+					message: __('Error preparing interface'),
+					indicator: 'red'
+				});
+				return; // Don't continue if DOM prep fails
+			}
+			
+			try {
+				this.prepare_components();
+				console.log('Components preparation completed');
+			} catch (error) {
+				console.error('Error preparing components:', error);
+				frappe.show_alert({
+					message: __('Error initializing POS components'),
+					indicator: 'red'
+				});
+				// Continue to menu preparation even if some components fail
+			}
+			
+			try {
+				this.prepare_menu();
+				console.log('Menu preparation completed');
+			} catch (error) {
+				console.error('Error preparing menu:', error);
+				frappe.show_alert({
+					message: __('Error setting up menu'),
+					indicator: 'orange'
+				});
+			}
+			
+			try {
+				this.make_new_invoice();
+				console.log('New invoice creation completed');
+			} catch (error) {
+				console.error('Error making new invoice:', error);
+				frappe.show_alert({
+					message: __('Error creating initial invoice'),
+					indicator: 'red'
+				});
+			}
+			
+			console.log('POS app creation completed successfully');
+		} catch (error) {
+			console.error('Critical error during app creation:', error);
+			frappe.msgprint({
+				title: __('App Creation Error'),
+				message: __('Failed to create POS application. Please refresh the page.'),
+				indicator: 'red'
+			});
+		}
 	}
 
 	prepare_dom() {
@@ -215,12 +411,86 @@ find_available_opening_entry() {
 	}
 
 	prepare_components() {
-		this.init_item_selector();
-		this.init_item_details();
-		this.init_item_cart();
-		this.init_payments();
-		this.init_recent_order_list();
-		this.init_order_summary();
+		try {
+			console.log('Preparing POS components with error handling');
+			
+			// Initialize components with individual error handling
+			try {
+				this.init_item_selector();
+				console.log('Item selector initialized successfully');
+			} catch (error) {
+				console.error('Error initializing item selector:', error);
+				frappe.show_alert({
+					message: __('Error initializing item selector'),
+					indicator: 'orange'
+				});
+			}
+			
+			try {
+				this.init_item_details();
+				console.log('Item details initialized successfully');
+			} catch (error) {
+				console.error('Error initializing item details:', error);
+				frappe.show_alert({
+					message: __('Error initializing item details'),
+					indicator: 'orange'
+				});
+			}
+			
+			try {
+				this.init_item_cart();
+				console.log('Item cart initialized successfully');
+			} catch (error) {
+				console.error('Error initializing item cart:', error);
+				frappe.show_alert({
+					message: __('Error initializing shopping cart. Some features may not work properly.'),
+					indicator: 'red'
+				});
+				// Don't throw the error to allow other components to initialize
+			}
+			
+			try {
+				this.init_payments();
+				console.log('Payments initialized successfully');
+			} catch (error) {
+				console.error('Error initializing payments:', error);
+				frappe.show_alert({
+					message: __('Error initializing payment system'),
+					indicator: 'orange'
+				});
+			}
+			
+			try {
+				this.init_recent_order_list();
+				console.log('Recent order list initialized successfully');
+			} catch (error) {
+				console.error('Error initializing recent order list:', error);
+				frappe.show_alert({
+					message: __('Error initializing recent orders'),
+					indicator: 'orange'
+				});
+			}
+			
+			try {
+				this.init_order_summary();
+				console.log('Order summary initialized successfully');
+			} catch (error) {
+				console.error('Error initializing order summary:', error);
+				frappe.show_alert({
+					message: __('Error initializing order summary'),
+					indicator: 'orange'
+				});
+			}
+			
+			console.log('POS components preparation completed');
+		} catch (error) {
+			console.error('Critical error during component preparation:', error);
+			frappe.msgprint({
+				title: __('Component Initialization Error'),
+				message: __('Some POS components failed to initialize. Please refresh the page.'),
+				indicator: 'red'
+			});
+		}
 	}
 
 	prepare_menu() {
@@ -322,60 +592,193 @@ find_available_opening_entry() {
 	}
 
 	init_item_cart() {
-		this.cart = new posnext.PointOfSale.ItemCart({
-			wrapper: this.$components_wrapper,
-			settings: this.settings,
-			events: {
-				get_frm: () => this.frm,
-				remove_item_from_cart: (item) => {
-					this.item_details.current_item = item
-					this.item_details.name = item.name
-					this.item_details.doctype= item.doctype
-
-				},
-				form_updated: (item, field, value) => {
-					this.item_details.current_item = item
-					const item_row = frappe.model.get_doc(item.doctype, item.name);
-					if(field === 'qty' && this.frm.doc.is_return && value >=0){
-						frappe.throw("Qty must be negative for return document" )
-					}
-					if (item_row && item_row[field] != value) {
-						const args = {
-							field,
-							value,
-							item: this.item_details.current_item
-						};
-						return this.on_cart_update(args);
-					}
-
-					return Promise.resolve();
-				},
-				cart_item_clicked: (item) => {
-
-					const item_row = this.get_item_from_frm(item);
-
-					if(selected_item && selected_item['name'] == item['name']){
-						selected_item = null
-					} else {
-						selected_item = item_row
-					}
-					this.item_details.toggle_item_details_section(item_row);
-				},
-
-				numpad_event: (value, action) => this.update_item_field(value, action),
-
-				checkout: () => this.save_and_checkout(),
-
-				edit_cart: () => this.payment.edit_cart(),
-				save_draft_invoice: () => this.save_draft_invoice(),
-				toggle_recent_order: () => this.toggle_recent_order(),
-				customer_details_updated: (details) => {
-					this.customer_details = details;
-					// will add/remove LP payment method
-					this.payment.render_loyalty_points_payment_mode();
-				}
+		try {
+			console.log('Initializing item cart with enhanced error handling');
+			
+			// Validate required components before cart initialization
+			if (!this.$components_wrapper || !this.$components_wrapper.length) {
+				console.error('Components wrapper not found for cart initialization');
+				frappe.msgprint(__('Failed to initialize cart: Components wrapper not available'));
+				return;
 			}
-		})
+			
+			if (!this.settings) {
+				console.error('Settings not available for cart initialization');
+				frappe.msgprint(__('Failed to initialize cart: Settings not loaded'));
+				return;
+			}
+			
+			this.cart = new posnext.PointOfSale.ItemCart({
+				wrapper: this.$components_wrapper,
+				settings: this.settings,
+				events: {
+					get_frm: () => {
+						try {
+							return this.frm;
+						} catch (error) {
+							console.error('Error getting form reference:', error);
+							return null;
+						}
+					},
+					remove_item_from_cart: (item) => {
+						try {
+							this.item_details.current_item = item;
+							this.item_details.name = item.name;
+							this.item_details.doctype = item.doctype;
+						} catch (error) {
+							console.error('Error removing item from cart:', error);
+							frappe.show_alert({
+								message: __('Error removing item from cart'),
+								indicator: 'red'
+							});
+						}
+					},
+					form_updated: (item, field, value) => {
+						try {
+							this.item_details.current_item = item;
+							const item_row = frappe.model.get_doc(item.doctype, item.name);
+							
+							if (field === 'qty' && this.frm.doc.is_return && value >= 0) {
+								frappe.throw("Qty must be negative for return document");
+							}
+							
+							if (item_row && item_row[field] != value) {
+								const args = {
+									field,
+									value,
+									item: this.item_details.current_item
+								};
+								return this.on_cart_update(args);
+							}
+
+							return Promise.resolve();
+						} catch (error) {
+							console.error('Error updating form:', error);
+							frappe.show_alert({
+								message: __('Error updating item: {0}', [error.message]),
+								indicator: 'red'
+							});
+							return Promise.reject(error);
+						}
+					},
+					cart_item_clicked: (item) => {
+						try {
+							const item_row = this.get_item_from_frm(item);
+
+							if (selected_item && selected_item['name'] == item['name']) {
+								selected_item = null;
+							} else {
+								selected_item = item_row;
+							}
+							
+							if (this.item_details && this.item_details.toggle_item_details_section) {
+								this.item_details.toggle_item_details_section(item_row);
+							}
+						} catch (error) {
+							console.error('Error handling cart item click:', error);
+							frappe.show_alert({
+								message: __('Error selecting item'),
+								indicator: 'red'
+							});
+						}
+					},
+
+					numpad_event: (value, action) => {
+						try {
+							return this.update_item_field(value, action);
+						} catch (error) {
+							console.error('Error handling numpad event:', error);
+							frappe.show_alert({
+								message: __('Error processing numpad input'),
+								indicator: 'red'
+							});
+						}
+					},
+
+					checkout: () => {
+						try {
+							return this.save_and_checkout();
+						} catch (error) {
+							console.error('Error during checkout:', error);
+							frappe.show_alert({
+								message: __('Error during checkout: {0}', [error.message]),
+								indicator: 'red'
+							});
+						}
+					},
+
+					edit_cart: () => {
+						try {
+							if (this.payment && this.payment.edit_cart) {
+								return this.payment.edit_cart();
+							}
+						} catch (error) {
+							console.error('Error editing cart:', error);
+							frappe.show_alert({
+								message: __('Error editing cart'),
+								indicator: 'red'
+							});
+						}
+					},
+					
+					save_draft_invoice: () => {
+						try {
+							return this.save_draft_invoice();
+						} catch (error) {
+							console.error('Error saving draft invoice:', error);
+							frappe.show_alert({
+								message: __('Error saving draft invoice'),
+								indicator: 'red'
+							});
+						}
+					},
+					
+					toggle_recent_order: () => {
+						try {
+							return this.toggle_recent_order();
+						} catch (error) {
+							console.error('Error toggling recent order:', error);
+							frappe.show_alert({
+								message: __('Error accessing recent orders'),
+								indicator: 'red'
+							});
+						}
+					},
+					
+					customer_details_updated: (details) => {
+						try {
+							this.customer_details = details;
+							// will add/remove LP payment method
+							if (this.payment && this.payment.render_loyalty_points_payment_mode) {
+								this.payment.render_loyalty_points_payment_mode();
+							}
+						} catch (error) {
+							console.error('Error updating customer details:', error);
+							frappe.show_alert({
+								message: __('Error updating customer details'),
+								indicator: 'red'
+							});
+						}
+					}
+				}
+			});
+			
+			// Validate cart was created successfully
+			if (!this.cart) {
+				console.error('Failed to create cart instance');
+				frappe.msgprint(__('Failed to initialize cart. Please refresh the page.'));
+				return;
+			}
+			
+			console.log('Item cart initialized successfully');
+		} catch (error) {
+			console.error('Critical error initializing item cart:', error);
+			frappe.msgprint({
+				title: __('Cart Initialization Error'),
+				message: __('Failed to initialize the shopping cart. Please refresh the page and try again.'),
+				indicator: 'red'
+			});
+		}
 	}
 
 	init_item_details() {
@@ -469,18 +872,7 @@ find_available_opening_entry() {
 					}
 				},
 
-				submit_invoice: () => {
-					this.frm.savesubmit()
-						.then((r) => {
-							this.toggle_components(false);
-							this.order_summary.toggle_component(true);
-							this.order_summary.load_summary_of(this.frm.doc, true);
-							frappe.show_alert({
-								indicator: 'green',
-								message: __('POS invoice {0} created succesfully', [r.doc.name])
-							});
-						});
-				}
+				submit_invoice: () => this.submit_invoice(),
 			}
 		});
 	}
@@ -657,17 +1049,23 @@ find_available_opening_entry() {
 	}
 
 	  async on_cart_update(args) {
-        console.log("Updating Cart");
+        console.log("Updating Cart with args:", args);
         let item_row = undefined;
         try {
             let { field, value, item } = args;
+            console.log("Cart update - Field:", field, "Value:", value, "Item:", item);
+            
             item_row = this.get_item_from_frm(item);
+            console.log("Item row from form:", item_row);
+            
             const item_row_exists = !$.isEmptyObject(item_row);
+            console.log("Item row exists:", item_row_exists);
 
             const from_selector = field === 'qty' && value === "+1";
             if (from_selector) value = flt(item_row.stock_qty) + 1;
 
             if (item_row_exists) {
+                console.log("Updating existing item in cart");
                 if (field === 'qty') value = flt(value);
 
                 if (['qty', 'conversion_factor'].includes(field) && value > 0 && !this.allow_negative_stock) {
@@ -680,7 +1078,9 @@ find_available_opening_entry() {
                 }
 
             } else {
+                console.log("Adding new item to cart");
                 if (!this.frm.doc.customer && !this.settings.custom_mobile_number_based_customer) {
+                    console.log("No customer selected - showing alert");
                     return this.raise_customer_selection_alert();
                 }
 
@@ -996,6 +1396,144 @@ find_available_opening_entry() {
 
 		} else {
 			this.payment.checkout();
+		}
+	}
+
+	async submit_invoice() {
+		// Fix for "In Words (Company Currency)" validation error
+		// This occurs when the system tries to recalculate read-only fields during submission
+		try {
+			console.log('POS submit_invoice method called', this.frm);
+			
+			if (!this.frm || !this.frm.doc) {
+				throw new Error('Form not properly initialized');
+			}
+			
+			const doc = this.frm.doc;
+			
+			// Check if document is already submitted
+			if (doc.docstatus === 1) {
+				frappe.show_alert({
+					indicator: 'orange',
+					message: __('Invoice is already submitted')
+				});
+				return;
+			}
+			
+			// Store the original values to prevent recalculation
+			const original_in_words = doc.in_words;
+			const original_base_in_words = doc.base_in_words;
+			
+			// Set a flag to indicate we're in POS submission mode
+			doc._pos_submitting = true;
+			
+			// First save the document to ensure all calculations are complete
+			let saved_doc;
+			try {
+				if (this.frm.save && typeof this.frm.save === 'function') {
+					saved_doc = await this.frm.save();
+				} else {
+					// Fallback: use frappe.call to save
+					saved_doc = await frappe.call({
+						method: 'frappe.desk.form.save.savedocs',
+						args: {
+							doc: doc,
+							action: 'Save'
+						}
+					});
+				}
+			} catch (save_error) {
+				console.error('Error saving document:', save_error);
+				throw new Error(`Failed to save document: ${save_error.message}`);
+			}
+			
+			// Clear any dirty flags that might trigger recalculation
+			doc.__islocal = false;
+			doc.__unsaved = false;
+			
+			// Restore the in_words values to prevent changes during submission
+			if (original_in_words) {
+				doc.in_words = original_in_words;
+			}
+			if (original_base_in_words) {
+				doc.base_in_words = original_base_in_words;
+			}
+			
+			// Submit the document using frappe.call instead of form.submit
+			let submitted_doc;
+			try {
+				if (this.frm.submit && typeof this.frm.submit === 'function') {
+					submitted_doc = await this.frm.submit();
+				} else {
+					// Fallback: use frappe.call to submit
+					submitted_doc = await frappe.call({
+						method: 'frappe.desk.form.save.savedocs',
+						args: {
+							doc: doc,
+							action: 'Submit'
+						}
+					});
+				}
+			} catch (submit_error) {
+				console.error('Error submitting document:', submit_error);
+				
+				// Try alternative submission method
+				try {
+					submitted_doc = await frappe.call({
+						method: 'frappe.client.submit',
+						args: {
+							doc: doc
+						}
+					});
+				} catch (alt_submit_error) {
+					console.error('Alternative submission also failed:', alt_submit_error);
+					throw new Error(`Failed to submit document: ${submit_error.message}`);
+				}
+			}
+			
+			// Clean up the flag
+			delete doc._pos_submitting;
+			
+			// Switch to print page after successful completion
+			this.toggle_components(false);
+			this.order_summary.toggle_component(true);
+			this.order_summary.load_summary_of(this.frm.doc, true);
+			
+			// Show success message briefly, then trigger print
+			frappe.show_alert({
+				indicator: 'green',
+				message: __('POS invoice {0} created successfully', [doc.name])
+			});
+			
+			// Always trigger print dialog/page after successful submission
+			setTimeout(() => {
+				this.order_summary.print_receipt();
+			}, 500); // Short delay to allow summary to load
+			
+			return submitted_doc;
+			
+		} catch (error) {
+			// Clean up on error
+			if (this.frm && this.frm.doc) {
+				delete this.frm.doc._pos_submitting;
+			}
+			
+			console.error('Critical error in submit_invoice:', error);
+			
+			// Handle specific "in words" error
+			if (error.message && error.message.includes('In Words')) {
+				frappe.show_alert({
+					indicator: 'orange',
+					message: __('Invoice saved but submission failed. Please try submitting again from the invoice list.')
+				});
+			} else {
+				frappe.show_alert({
+					indicator: 'red',
+					message: __('Critical error submitting invoice: {0}', [error.message || 'Unknown error'])
+				});
+			}
+			
+			throw error; // Re-throw for any calling code to handle
 		}
 	}
 };

@@ -1,62 +1,188 @@
 frappe.provide('posnext.PointOfSale');
 posnext.PointOfSale.ItemDetails = class {
-	constructor({ wrapper, events, settings }) {
+	constructor({ wrapper, events, settings } = {}) {
+		// Enhanced constructor validation with defensive programming
+		if (!wrapper) {
+			throw new Error('ItemDetails constructor requires wrapper parameter');
+		}
+		if (!events) {
+			throw new Error('ItemDetails constructor requires events parameter');
+		}
+		
 		this.wrapper = wrapper;
 		this.events = events;
-		this.hide_images = settings.hide_images;
-		this.allow_rate_change = settings.allow_rate_change;
-		this.allow_discount_change = settings.allow_discount_change;
-		this.custom_edit_rate_and_uom = settings.custom_edit_rate_and_uom;
+		this.hide_images = settings?.hide_images || false;
+		this.allow_rate_change = settings?.allow_rate_change || false;
+		this.allow_discount_change = settings?.allow_discount_change || false;
+		this.custom_edit_rate_and_uom = settings?.custom_edit_rate_and_uom || false;
 		this.current_item = {};
 
-		this.init_component();
+		// Initialize logger for debugging
+		this.logger = this.createLogger();
+
+		try {
+			this.init_component();
+			this.logger?.info('ItemDetails', 'Component initialized successfully');
+		} catch (error) {
+			this.logger?.error('ItemDetails', {
+				message: 'Failed to initialize component',
+				error: error?.message || 'Unknown error',
+				stack: error?.stack
+			});
+			throw error;
+		}
+	}
+
+	// Enhanced logger utility for debugging and monitoring
+	createLogger() {
+		if (typeof console === 'undefined') return null;
+		
+		return {
+			info: (context, message) => {
+				try {
+					console.log(`[POS ItemDetails - ${context}] ${message}`);
+				} catch (e) { /* Silent fail */ }
+			},
+			error: (context, details) => {
+				try {
+					console.error(`[POS ItemDetails - ${context}] Error:`, details);
+				} catch (e) { /* Silent fail */ }
+			},
+			warn: (context, message) => {
+				try {
+					console.warn(`[POS ItemDetails - ${context}] Warning: ${message}`);
+				} catch (e) { /* Silent fail */ }
+			}
+		};
+	}
+
+	// Safe CSS operation wrapper
+	safeCss(element, property, value) {
+		try {
+			if (!element || !element.css || typeof element.css !== 'function') {
+				this.logger?.warn('CSS Operation', `Invalid element for CSS operation: ${property}`);
+				return false;
+			}
+			
+			if (value !== undefined) {
+				element.css(property, value);
+			} else {
+				return element.css(property);
+			}
+			return true;
+		} catch (error) {
+			this.logger?.error('CSS Operation', {
+				message: 'CSS operation failed',
+				property: property,
+				value: value,
+				error: error?.message || 'Unknown error'
+			});
+			return false;
+		}
 	}
 
 	init_component() {
-		this.prepare_dom();
-		this.init_child_components();
-		this.bind_events();
-		this.attach_shortcuts();
+		try {
+			this.prepare_dom();
+			this.init_child_components();
+			this.bind_events();
+			this.attach_shortcuts();
+			this.logger?.info('Component', 'All components initialized successfully');
+		} catch (error) {
+			this.logger?.error('Component', {
+				message: 'Failed to initialize components',
+				error: error?.message || 'Unknown error'
+			});
+			throw error;
+		}
 	}
 
 	prepare_dom() {
-		this.wrapper.append(
-			`<section class="item-details-container" id="item-details-container"></section>`
-		)
+		try {
+			if (!this.wrapper || !this.wrapper.append) {
+				throw new Error('Invalid wrapper element for DOM preparation');
+			}
+			
+			this.wrapper.append(
+				`<section class="item-details-container" id="item-details-container"></section>`
+			);
 
-		this.$component = this.wrapper.find('.item-details-container');
+			this.$component = this.wrapper.find('.item-details-container');
+			
+			if (!this.$component || this.$component.length === 0) {
+				throw new Error('Failed to create item details container');
+			}
+			
+			this.logger?.info('DOM', 'DOM structure prepared successfully');
+		} catch (error) {
+			this.logger?.error('DOM', {
+				message: 'Failed to prepare DOM structure',
+				error: error?.message || 'Unknown error'
+			});
+			throw error;
+		}
 	}
 
 	init_child_components() {
-		this.$component.html(
-			`<div class="item-details-header">
-				<div class="label">${__('Item Detailss')}</div>
-				<div class="close-btn">
-					<svg width="32" height="32" viewBox="0 0 14 14" fill="none">
-						<path d="M4.93764 4.93759L7.00003 6.99998M9.06243 9.06238L7.00003 6.99998M7.00003 6.99998L4.93764 9.06238L9.06243 4.93759" stroke="#8D99A6"/>
-					</svg>
+		try {
+			if (!this.$component || !this.$component.html) {
+				throw new Error('Component container not available for initialization');
+			}
+			
+			this.$component.html(
+				`<div class="item-details-header">
+					<div class="label">${__('Item Detailss')}</div>
+					<div class="close-btn">
+						<svg width="32" height="32" viewBox="0 0 14 14" fill="none">
+							<path d="M4.93764 4.93759L7.00003 6.99998M9.06243 9.06238L7.00003 6.99998M7.00003 6.99998L4.93764 9.06238L9.06243 4.93759" stroke="#8D99A6"/>
+						</svg>
+					</div>
 				</div>
-			</div>
-			<div class="item-display">
-				<div class="item-name-desc-price">
-					<div class="item-name"></div>
-					<div class="item-desc"></div>
-					<div class="item-price"></div>
+				<div class="item-display">
+					<div class="item-name-desc-price">
+						<div class="item-name"></div>
+						<div class="item-desc"></div>
+						<div class="item-price"></div>
+					</div>
+					<div class="item-image"></div>
 				</div>
-				<div class="item-image"></div>
-			</div>
-			<div class="discount-section"></div>
-			<div class="form-container"></div>
-			<div class="serial-batch-container"></div>`
-		)
+				<div class="discount-section"></div>
+				<div class="form-container"></div>
+				<div class="serial-batch-container"></div>`
+			);
 
-		this.$item_name = this.$component.find('.item-name');
-		this.$item_description = this.$component.find('.item-desc');
-		this.$item_price = this.$component.find('.item-price');
-		this.$item_image = this.$component.find('.item-image');
-		this.$form_container = this.$component.find('.form-container');
-		this.$dicount_section = this.$component.find('.discount-section');
-		this.$serial_batch_container = this.$component.find('.serial-batch-container');
+			// Initialize component references with validation
+			this.$item_name = this.$component.find('.item-name');
+			this.$item_description = this.$component.find('.item-desc');
+			this.$item_price = this.$component.find('.item-price');
+			this.$item_image = this.$component.find('.item-image');
+			this.$form_container = this.$component.find('.form-container');
+			this.$dicount_section = this.$component.find('.discount-section');
+			this.$serial_batch_container = this.$component.find('.serial-batch-container');
+
+			// Validate all required elements were created
+			const requiredElements = [
+				{ name: 'item_name', element: this.$item_name },
+				{ name: 'item_description', element: this.$item_description },
+				{ name: 'item_price', element: this.$item_price },
+				{ name: 'item_image', element: this.$item_image },
+				{ name: 'form_container', element: this.$form_container }
+			];
+
+			for (const { name, element } of requiredElements) {
+				if (!element || element.length === 0) {
+					this.logger?.warn('Child Components', `${name} element not found`);
+				}
+			}
+			
+			this.logger?.info('Child Components', 'All child components initialized');
+		} catch (error) {
+			this.logger?.error('Child Components', {
+				message: 'Failed to initialize child components',
+				error: error?.message || 'Unknown error'
+			});
+			throw error;
+		}
 	}
 
 	compare_with_current_item(item) {
@@ -216,12 +342,24 @@ posnext.PointOfSale.ItemDetails = class {
 	}
 
 	make_auto_serial_selection_btn(item) {
-		if (item.has_serial_no || item.has_batch_no) {
-			const label = item.has_serial_no ? __('Select Serial No') : __('Select Batch No');
-			this.$form_container.append(
-				`<div class="btn btn-sm btn-secondary auto-fetch-btn">${label}</div>`
-			);
-			this.$form_container.find('.serial_no-control').find('textarea').css('height', '6rem');
+		try {
+			if (item.has_serial_no || item.has_batch_no) {
+				const label = item.has_serial_no ? __('Select Serial No') : __('Select Batch No');
+				this.$form_container.append(
+					`<div class="btn btn-sm btn-secondary auto-fetch-btn">${label}</div>`
+				);
+				
+				// Safe CSS operation for textarea height
+				const serialControl = this.$form_container.find('.serial_no-control').find('textarea');
+				if (serialControl && serialControl.length > 0) {
+					this.safeCss(serialControl, 'height', '6rem');
+				}
+			}
+		} catch (error) {
+			this.logger?.error('Serial Selection', {
+				message: 'Failed to create auto serial selection button',
+				error: error?.message || 'Unknown error'
+			});
 		}
 	}
 
@@ -362,22 +500,61 @@ posnext.PointOfSale.ItemDetails = class {
 	}
 
 	bind_events() {
-		this.bind_auto_serial_fetch_event();
-		this.bind_fields_to_numpad_fields();
+		try {
+			this.bind_auto_serial_fetch_event();
+			this.bind_fields_to_numpad_fields();
 
-		this.$component.on('click', '.close-btn', () => {
-			this.events.close_item_details();
-		});
+			if (this.$component && this.$component.on) {
+				this.$component.on('click', '.close-btn', () => {
+					try {
+						this.events.close_item_details();
+					} catch (error) {
+						this.logger?.error('Event', {
+							message: 'Failed to close item details',
+							error: error?.message || 'Unknown error'
+						});
+					}
+				});
+			}
+			
+			this.logger?.info('Events', 'All events bound successfully');
+		} catch (error) {
+			this.logger?.error('Events', {
+				message: 'Failed to bind events',
+				error: error?.message || 'Unknown error'
+			});
+		}
 	}
 
 	attach_shortcuts() {
-		this.wrapper.find('.close-btn').attr("title", "Esc");
-		frappe.ui.keys.on("escape", () => {
-			const item_details_visible = this.$component.is(":visible");
-			if (item_details_visible) {
-				this.events.close_item_details();
+		try {
+			if (this.wrapper && this.wrapper.find) {
+				this.wrapper.find('.close-btn').attr("title", "Esc");
 			}
-		});
+			
+			if (frappe?.ui?.keys?.on) {
+				frappe.ui.keys.on("escape", () => {
+					try {
+						const item_details_visible = this.$component?.is(":visible");
+						if (item_details_visible) {
+							this.events.close_item_details();
+						}
+					} catch (error) {
+						this.logger?.error('Shortcut', {
+							message: 'Failed to handle escape shortcut',
+							error: error?.message || 'Unknown error'
+						});
+					}
+				});
+			}
+			
+			this.logger?.info('Shortcuts', 'Keyboard shortcuts attached successfully');
+		} catch (error) {
+			this.logger?.error('Shortcuts', {
+				message: 'Failed to attach shortcuts',
+				error: error?.message || 'Unknown error'
+			});
+		}
 	}
 
 	bind_fields_to_numpad_fields() {
@@ -411,6 +588,27 @@ posnext.PointOfSale.ItemDetails = class {
 	}
 
 	toggle_component(show) {
-		show ? this.$component.css('display', 'flex') : this.$component.css('display', 'none');
+		try {
+			if (!this.$component) {
+				this.logger?.warn('Toggle', 'Component not available for toggle operation');
+				return false;
+			}
+			
+			const displayValue = show ? 'flex' : 'none';
+			const success = this.safeCss(this.$component, 'display', displayValue);
+			
+			if (success) {
+				this.logger?.info('Toggle', `Component ${show ? 'shown' : 'hidden'} successfully`);
+			}
+			
+			return success;
+		} catch (error) {
+			this.logger?.error('Toggle', {
+				message: 'Failed to toggle component visibility',
+				show: show,
+				error: error?.message || 'Unknown error'
+			});
+			return false;
+		}
 	}
 }
