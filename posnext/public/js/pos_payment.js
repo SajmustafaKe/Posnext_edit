@@ -1,4 +1,3 @@
-
 /* eslint-disable no-unused-vars */
 frappe.provide('posnext.PointOfSale');
 posnext.PointOfSale.Payment = class {
@@ -23,254 +22,9 @@ posnext.PointOfSale.Payment = class {
 	init_component() {
 		this.prepare_dom();
 		this.initialize_numpad();
-		this._inject_payment_styles();
-		this._setup_performance_optimizations();
 		this.bind_events();
 		this.attach_shortcuts();
 
-	}
-
-	_inject_payment_styles() {
-		if (document.getElementById('posnext-payment-styles')) return;
-		
-		const style = document.createElement('style');
-		style.id = 'posnext-payment-styles';
-		style.textContent = `
-			/* Enhanced POS Payment Styles */
-			
-			/* Shortcut button click feedback */
-			.shortcut-btn.shortcut-clicked {
-				transform: scale(0.95) !important;
-				transition: transform 0.1s ease !important;
-			}
-			
-			/* Success flash animation */
-			@keyframes success-flash {
-				0% { background-color: #28a745; color: white; }
-				50% { background-color: #20c997; color: white; }
-				100% { background-color: #28a745; color: white; }
-			}
-			
-			.success-flash {
-				animation: success-flash 0.6s ease-in-out !important;
-			}
-			
-			/* Shortcut flash animation */
-			@keyframes shortcut-flash {
-				0% { background-color: #007bff; color: white; }
-				50% { background-color: #0056b3; color: white; }
-				100% { background-color: #007bff; color: white; }
-			}
-			
-			.shortcut-flash {
-				animation: shortcut-flash 0.4s ease-in-out !important;
-			}
-			
-			/* Enhanced payment mode styling */
-			.mode-of-payment-control {
-				transition: all 0.2s ease !important;
-			}
-			
-			.mode-of-payment-control:focus {
-				box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25) !important;
-				border-color: #007bff !important;
-			}
-			
-			/* Cash shortcuts container */
-			.cash-shortcuts-container {
-				margin: 8px 0;
-				padding: 12px;
-				background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
-				border: 1px solid #e9ecef;
-				border-radius: 8px;
-				box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);
-			}
-			
-			.cash-shortcuts-header {
-				display: flex;
-				align-items: center;
-				justify-content: center;
-				margin-bottom: 8px;
-				font-size: 14px;
-				font-weight: 600;
-				color: #495057;
-			}
-			
-			.cash-shortcuts-header i {
-				margin-right: 6px;
-				color: #28a745;
-			}
-			
-			.cash-shortcuts-grid {
-				display: grid;
-				grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
-				gap: 6px;
-			}
-			
-			/* Enhanced shortcut button styling */
-			.shortcut-btn {
-				display: flex !important;
-				flex-direction: column !important;
-				align-items: center !important;
-				justify-content: center !important;
-				padding: 10px 8px !important;
-				background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%) !important;
-				border: 1px solid #dee2e6 !important;
-				border-radius: 8px !important;
-				cursor: pointer !important;
-				font-size: 13px !important;
-				font-weight: 600 !important;
-				text-align: center !important;
-				min-height: 50px !important;
-				transition: all 0.2s ease !important;
-				box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
-				user-select: none !important;
-				position: relative !important;
-				overflow: hidden !important;
-			}
-			
-			.shortcut-btn:hover {
-				background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%) !important;
-				transform: translateY(-2px) !important;
-				box-shadow: 0 3px 12px rgba(0,0,0,0.15) !important;
-				border-color: #adb5bd !important;
-			}
-			
-			.shortcut-btn:active {
-				transform: translateY(0) !important;
-				box-shadow: 0 1px 2px rgba(0,0,0,0.1) !important;
-			}
-			
-			.shortcut-btn:focus {
-				outline: 2px solid #007bff !important;
-				outline-offset: 2px !important;
-				background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%) !important;
-			}
-			
-			.shortcut-amount {
-				font-size: 14px !important;
-				font-weight: 700 !important;
-				color: #212529 !important;
-				line-height: 1.2 !important;
-			}
-			
-			.shortcut-currency {
-				font-size: 10px !important;
-				font-weight: 500 !important;
-				color: #6c757d !important;
-				margin-top: 2px !important;
-				text-transform: uppercase !important;
-			}
-			
-			/* Payment mode icons */
-			.payment-mode-icon {
-				margin-right: 8px;
-				font-size: 16px;
-				width: 20px;
-				text-align: center;
-				color: #495057;
-			}
-			
-			.payment-mode-header {
-				display: flex;
-				align-items: center;
-				justify-content: flex-start;
-				margin-bottom: 4px;
-			}
-			
-			.payment-mode-name {
-				font-size: 14px;
-				font-weight: 600;
-				color: #212529;
-				flex: 1;
-			}
-			
-			/* Enhanced payment mode styling */
-			.mode-of-payment {
-				padding: 12px !important;
-				border: 2px solid #e9ecef !important;
-				border-radius: 8px !important;
-				background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%) !important;
-				transition: all 0.2s ease !important;
-				cursor: pointer !important;
-				position: relative !important;
-			}
-			
-			.mode-of-payment:hover {
-				border-color: #007bff !important;
-				box-shadow: 0 2px 8px rgba(0, 123, 255, 0.1) !important;
-				transform: translateY(-1px) !important;
-			}
-			
-			.mode-of-payment.border-primary {
-				border-color: #007bff !important;
-				box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1) !important;
-				background: linear-gradient(135deg, #f8f9fa 0%, #e3f2fd 100%) !important;
-			}
-			
-			/* Enhanced form controls */
-			.payment-input-enhanced {
-				border-radius: 6px !important;
-				border: 2px solid #e9ecef !important;
-				padding: 8px 12px !important;
-				font-size: 14px !important;
-				transition: all 0.2s ease !important;
-			}
-			
-			.payment-input-enhanced:focus {
-				border-color: #007bff !important;
-				box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1) !important;
-				outline: none !important;
-			}
-			
-			.payment-input-enhanced.error {
-				border-color: #dc3545 !important;
-				box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.1) !important;
-			}
-			
-			/* Loading states */
-			.payment-loading {
-				position: relative !important;
-				pointer-events: none !important;
-				opacity: 0.6 !important;
-			}
-			
-			.payment-loading::after {
-				content: '';
-				position: absolute;
-				top: 50%;
-				left: 50%;
-				width: 20px;
-				height: 20px;
-				margin: -10px 0 0 -10px;
-				border: 2px solid #007bff;
-				border-top: 2px solid transparent;
-				border-radius: 50%;
-				animation: spin 1s linear infinite;
-			}
-			
-			@keyframes spin {
-				0% { transform: rotate(0deg); }
-				100% { transform: rotate(360deg); }
-			}
-			
-			/* Responsive design */
-			@media (max-width: 768px) {
-				.cash-shortcuts-grid {
-					grid-template-columns: repeat(3, 1fr) !important;
-				}
-				
-				.shortcut-btn {
-					min-height: 45px !important;
-					padding: 8px 6px !important;
-				}
-				
-				.shortcut-amount {
-					font-size: 13px !important;
-				}
-			}
-		`;
-		document.head.appendChild(style);
 	}
 
 	prepare_dom() {
@@ -538,39 +292,9 @@ posnext.PointOfSale.Payment = class {
 
 		this.setup_listener_for_payments();
 
-		this.$payment_modes.on('click', '.shortcut-btn', function() {
-			try {
-				const value = $(this).attr('data-value');
-				if (!value || isNaN(value)) {
-					frappe.show_alert({
-						message: __('Invalid shortcut value'),
-						indicator: 'red'
-					});
-					return;
-				}
-				
-				// Add click feedback
-				$(this).addClass('shortcut-clicked');
-				setTimeout(() => {
-					$(this).removeClass('shortcut-clicked');
-				}, 150);
-				
-				me._handleShortcutSelection(value);
-			} catch (error) {
-				console.error('Error applying cash shortcut:', error);
-				frappe.show_alert({
-					message: __('Error applying cash shortcut'),
-					indicator: 'red'
-				});
-			}
-		});
-
-		// Add keyboard support for shortcuts
-		this.$payment_modes.on('keydown', '.shortcut-btn', function(e) {
-			if (e.key === 'Enter' || e.key === ' ') {
-				e.preventDefault();
-				$(this).click();
-			}
+		this.$payment_modes.on('click', '.shortcut', function() {
+			const value = $(this).attr('data-value');
+			me.selected_mode.set_value(value);
 		});
 
 		this.$component.on('click', '.submit-order-btn', () => {
@@ -616,76 +340,6 @@ posnext.PointOfSale.Payment = class {
 				this[`${mode}_control`].set_value(default_mop.amount);
 			}
 		});
-	}
-
-	_handleShortcutSelection(value) {
-		try {
-			// Strategy 1: Use currently selected mode
-			if (this.selected_mode && typeof this.selected_mode.set_value === 'function') {
-				this.selected_mode.set_value(value);
-				this._addShortcutFeedback(this.selected_mode.$input);
-				return;
-			}
-
-			// Strategy 2: Find currently active payment mode
-			const activePaymentMode = this.$payment_modes.find('.mode-of-payment.border-primary');
-			if (activePaymentMode.length) {
-				const mode = activePaymentMode.attr('data-mode');
-				const control = this[`${mode}_control`];
-				if (control && typeof control.set_value === 'function') {
-					control.set_value(value);
-					this._addShortcutFeedback(control.$input);
-					return;
-				}
-			}
-
-			// Strategy 3: Auto-select cash mode and set value
-			const cashMode = this.$payment_modes.find('[data-payment-type="Cash"], [data-mode*="cash"]').first();
-			if (cashMode.length) {
-				cashMode.click();
-				setTimeout(() => {
-					if (this.selected_mode && typeof this.selected_mode.set_value === 'function') {
-						this.selected_mode.set_value(value);
-						this._addShortcutFeedback(this.selected_mode.$input);
-					}
-				}, 100);
-				return;
-			}
-
-			// Strategy 4: Try first available payment mode
-			const firstMode = this.$payment_modes.find('.mode-of-payment').first();
-			if (firstMode.length) {
-				firstMode.click();
-				setTimeout(() => {
-					if (this.selected_mode && typeof this.selected_mode.set_value === 'function') {
-						this.selected_mode.set_value(value);
-						this._addShortcutFeedback(this.selected_mode.$input);
-					}
-				}, 100);
-				return;
-			}
-
-			// Strategy 5: Show error if nothing worked
-			frappe.show_alert({
-				message: __('No payment mode available for cash shortcut'),
-				indicator: 'orange'
-			});
-		} catch (error) {
-			console.error('Error in shortcut selection:', error);
-			frappe.show_alert({
-				message: __('Error applying shortcut value'),
-				indicator: 'red'
-			});
-		}
-	}
-
-	_addShortcutFeedback($input) {
-		if ($input && $input.length) {
-			$input.addClass('shortcut-flash');
-			setTimeout(() => {
-				$input.removeClass('shortcut-flash');
-			}, 500);
-		}
 	}
 
 	setup_listener_for_payments() {
@@ -828,10 +482,7 @@ posnext.PointOfSale.Payment = class {
 				return (`
 					<div class="payment-mode-wrapper">
 						<div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
-							<div class="payment-mode-header">
-								<i class="${this._get_payment_icon(payment_type)} payment-mode-icon"></i>
-								<span class="payment-mode-name">${p.mode_of_payment}</span>
-							</div>
+							${p.mode_of_payment}
 							<div class="${mode}-amount pay-amount">${amount}</div>
 							<div class="${mode} mode-of-payment-control"></div>
 						</div>
@@ -849,51 +500,16 @@ posnext.PointOfSale.Payment = class {
 					fieldtype: 'Currency',
 					placeholder: __('Enter {0} amount.', [p.mode_of_payment]),
 					onchange: function() {
-						try {
-							console.log(p.doctype)
-							console.log(p.name)
-							const current_value = frappe.model.get_value(p.doctype, p.name, 'amount');
-							
-							// Validate input value
-							if (isNaN(this.value) || this.value < 0) {
-								frappe.show_alert({
-									message: __('Please enter a valid positive amount'),
-									indicator: 'red'
-								});
-								this.set_value(current_value || 0);
-								return;
-							}
-							
-							// Check if value has actually changed
-							if (current_value != this.value) {
-								frappe.model
-									.set_value(p.doctype, p.name, 'amount', flt(this.value))
-									.then(() => {
-										me.update_totals_section();
-										// Add visual feedback for successful update
-										this.$input.addClass('success-flash');
-										setTimeout(() => {
-											this.$input.removeClass('success-flash');
-										}, 300);
-									})
-									.catch((error) => {
-										console.error('Error updating payment amount:', error);
-										frappe.show_alert({
-											message: __('Error updating payment amount: {0}', [error.message]),
-											indicator: 'red'
-										});
-										this.set_value(current_value || 0);
-									});
+						console.log(p.doctype)
+						console.log(p.name)
+						const current_value = frappe.model.get_value(p.doctype, p.name, 'amount');
+						if (current_value != this.value) {
+							frappe.model
+								.set_value(p.doctype, p.name, 'amount', flt(this.value))
+								.then(() => me.update_totals_section())
 
-								const formatted_currency = format_currency(this.value, currency);
-								me.$payment_modes.find(`.${mode}-amount`).html(formatted_currency);
-							}
-						} catch (error) {
-							console.error('Error in payment control onchange:', error);
-							frappe.show_alert({
-								message: __('An error occurred while processing payment'),
-								indicator: 'red'
-							});
+							const formatted_currency = format_currency(this.value, currency);
+							me.$payment_modes.find(`.${mode}-amount`).html(formatted_currency);
 						}
 					}
 				},
@@ -929,72 +545,12 @@ posnext.PointOfSale.Payment = class {
 		const shortcuts = this.get_cash_shortcuts(flt(grand_total));
 
 		this.$payment_modes.find('.cash-shortcuts').remove();
-		
-		if (shortcuts.length === 0) return;
-
 		let shortcuts_html = shortcuts.map(s => {
-			const formattedAmount = format_currency(s, currency, 0);
-			return `<button class="shortcut-btn" 
-				data-value="${s}" 
-				role="button" 
-				aria-label="Quick cash amount selection ${formattedAmount}"
-				tabindex="0"
-				style="
-					display: inline-block; 
-					margin: 2px; 
-					padding: 8px 12px; 
-					background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
-					border: 1px solid #dee2e6; 
-					border-radius: 6px; 
-					cursor: pointer; 
-					font-size: 12px; 
-					font-weight: 600; 
-					text-align: center; 
-					min-width: 60px; 
-					transition: all 0.2s ease;
-					box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-					user-select: none;
-				"
-				onmouseover="this.style.background='linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%)'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.15)';"
-				onmouseout="this.style.background='linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)'; this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.1)';"
-				onmousedown="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 2px rgba(0,0,0,0.1)';"
-				onmouseup="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.15)';"
-				onfocus="this.style.outline='2px solid #007bff'; this.style.outlineOffset='2px';"
-				onblur="this.style.outline='none';">${formattedAmount}</button>`;
+			return `<div class="shortcut" data-value="${s}">${format_currency(s, currency, 0)}</div>`;
 		}).join('');
 
-		const shortcutsContainer = `<div class="cash-shortcuts" style="
-			display: grid; 
-			grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); 
-			gap: 4px; 
-			margin-top: 8px; 
-			padding: 8px; 
-			background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%); 
-			border: 1px solid #e9ecef; 
-			border-radius: 8px;
-			box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);">${shortcuts_html}</div>`;
-
-		// Enhanced cash payment mode detection
-		let cashPaymentMode = this.$payment_modes.find('[data-payment-type="Cash"]');
-		
-		if (!cashPaymentMode.length) {
-			cashPaymentMode = this.$payment_modes.find('[data-mode*="cash"]');
-		}
-		
-		if (!cashPaymentMode.length) {
-			cashPaymentMode = this.$payment_modes.find('.mode-of-payment').filter(function() {
-				return $(this).text().toLowerCase().includes('cash');
-			});
-		}
-		
-		if (!cashPaymentMode.length) {
-			cashPaymentMode = this.$payment_modes.find('.mode-of-payment').first();
-		}
-
-		if (cashPaymentMode.length) {
-			cashPaymentMode.find('.mode-of-payment-control')
-				.after(shortcutsContainer);
-		}
+		this.$payment_modes.find('[data-payment-type="Cash"]').find('.mode-of-payment-control')
+			.after(`<div class="cash-shortcuts">${shortcuts_html}</div>`);
 	}
 
 	get_cash_shortcuts(grand_total) {
@@ -1039,10 +595,7 @@ posnext.PointOfSale.Payment = class {
 		this.$payment_modes.append(
 			`<div class="payment-mode-wrapper">
 				<div class="mode-of-payment loyalty-card" data-mode="loyalty-amount" data-payment-type="loyalty-amount">
-					<div class="payment-mode-header">
-						<i class="${this._get_payment_icon('loyalty-amount')} payment-mode-icon"></i>
-						<span class="payment-mode-name">Redeem Loyalty Points</span>
-					</div>
+					Redeem Loyalty Points
 					<div class="loyalty-amount-amount pay-amount">${amount}</div>
 					<div class="loyalty-amount-name">${loyalty_program}</div>
 					<div class="loyalty-amount mode-of-payment-control"></div>
@@ -1126,135 +679,6 @@ posnext.PointOfSale.Payment = class {
 				<div class="value">${format_currency(change || remaining, currency)}</div>
 			</div>`
 		);
-	}
-
-	_setup_performance_optimizations() {
-		// Debounce function for input events
-		this._debounce = (func, wait) => {
-			let timeout;
-			return function executedFunction(...args) {
-				const later = () => {
-					clearTimeout(timeout);
-					func(...args);
-				};
-				clearTimeout(timeout);
-				timeout = setTimeout(later, wait);
-			};
-		};
-
-		// Cache DOM elements for better performance
-		this._cache_dom_elements();
-		
-		// Optimize event delegation
-		this._optimize_event_delegation();
-		
-		// Setup loading states
-		this._setup_loading_states();
-	}
-
-	_cache_dom_elements() {
-		// Cache frequently accessed DOM elements
-		this._cached_elements = {
-			payment_modes: this.$payment_modes,
-			payment_container: this.$payment_modes.closest('.payment-container'),
-			cash_shortcuts: null,
-			mode_controls: null
-		};
-		
-		// Update cache when DOM changes
-		this._update_dom_cache = () => {
-			this._cached_elements.cash_shortcuts = this.$payment_modes.find('.cash-shortcuts');
-			this._cached_elements.mode_controls = this.$payment_modes.find('.mode-of-payment-control');
-		};
-	}
-
-	_optimize_event_delegation() {
-		// Use event delegation for better performance
-		this.$payment_modes.off('input.payment_optimized');
-		this.$payment_modes.on('input.payment_optimized', '.mode-of-payment-control input', 
-			this._debounce((e) => {
-				const $input = $(e.target);
-				const fieldname = $input.attr('data-fieldname');
-				if (fieldname) {
-					this._handle_payment_input_optimized(fieldname, $input.val());
-				}
-			}, 300)
-		);
-	}
-
-	_handle_payment_input_optimized(fieldname, value) {
-		try {
-			// Optimized payment input handling
-			const numValue = flt(value);
-			if (isNaN(numValue)) {
-				frappe.show_alert({
-					message: __('Invalid amount entered'),
-					indicator: 'red'
-				});
-				return;
-			}
-			
-			// Batch DOM updates
-			this._batch_dom_updates(() => {
-				this.update_totals_section(this.events.get_frm().doc);
-			});
-			
-		} catch (error) {
-			console.error('Error in optimized payment input handling:', error);
-		}
-	}
-
-	_batch_dom_updates(callback) {
-		// Use requestAnimationFrame for smoother DOM updates
-		if (window.requestAnimationFrame) {
-			requestAnimationFrame(() => {
-				callback();
-			});
-		} else {
-			callback();
-		}
-	}
-
-	_setup_loading_states() {
-		// Add loading state management
-		this._loading_states = new Map();
-		
-		this._set_loading_state = (element, loading) => {
-			const $element = $(element);
-			if (loading) {
-				$element.addClass('payment-loading');
-				this._loading_states.set(element, true);
-			} else {
-				$element.removeClass('payment-loading');
-				this._loading_states.delete(element);
-			}
-		};
-		
-		this._is_loading = (element) => {
-			return this._loading_states.has(element);
-		};
-	}
-
-	_get_payment_icon(payment_type) {
-		const iconMap = {
-			'Cash': 'fa fa-money-bill-wave',
-			'Card': 'fa fa-credit-card',
-			'Credit Card': 'fa fa-credit-card',
-			'Debit Card': 'fa fa-credit-card',
-			'Bank Transfer': 'fa fa-university',
-			'Cheque': 'fa fa-money-check',
-			'Digital Wallet': 'fa fa-mobile-alt',
-			'Mobile Money': 'fa fa-mobile-alt',
-			'loyalty-amount': 'fa fa-gift',
-			'UPI': 'fa fa-qrcode',
-			'PayPal': 'fa fa-paypal',
-			'Apple Pay': 'fa fa-apple-pay',
-			'Google Pay': 'fa fa-google-pay',
-			'Samsung Pay': 'fa fa-samsung-pay'
-		};
-		
-		// Default icon for unknown payment types
-		return iconMap[payment_type] || 'fa fa-money-bill';
 	}
 
 	toggle_component(show) {

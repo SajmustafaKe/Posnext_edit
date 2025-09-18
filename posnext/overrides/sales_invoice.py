@@ -33,41 +33,4 @@ class PosnextSalesInvoice(SalesInvoice):
             if not custom_show_credit_sales:
                 frappe.throw(_("At least one mode of payment is required for POS invoice."))
 
-    def before_submit(self):
-        # Fix for "In Words (Company Currency)" validation error during POS submission
-        if self.is_pos and hasattr(self, '_pos_submitting'):
-            # Store current in_words values to prevent recalculation during submission
-            if self.in_words:
-                self._stored_in_words = self.in_words
-            if self.base_in_words:
-                self._stored_base_in_words = self.base_in_words
-        
-        # Call parent method
-        super().before_submit()
-        
-        # Restore stored values after parent processing
-        if self.is_pos and hasattr(self, '_pos_submitting'):
-            if hasattr(self, '_stored_in_words'):
-                self.in_words = self._stored_in_words
-            if hasattr(self, '_stored_base_in_words'):
-                self.base_in_words = self._stored_base_in_words
-
-    def validate(self):
-        # Fix for "In Words (Company Currency)" validation error
-        # Skip certain validations during POS submission that might trigger field recalculation
-        if self.is_pos and hasattr(self, '_pos_submitting'):
-            # Store original in_words values before validation
-            original_in_words = self.in_words
-            original_base_in_words = self.base_in_words
-            
-        # Call parent validation
-        super().validate()
-        
-        # Restore in_words values if they were changed during validation
-        if self.is_pos and hasattr(self, '_pos_submitting'):
-            if original_in_words and self.in_words != original_in_words:
-                self.in_words = original_in_words
-            if original_base_in_words and self.base_in_words != original_base_in_words:
-                self.base_in_words = original_base_in_words
-
 
